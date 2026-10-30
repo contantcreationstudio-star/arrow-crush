@@ -1,0 +1,10 @@
+Arrow Crush - audio credits
+
+music_bgm.ogg, sfx_tap.ogg, sfx_slide_a.ogg, sfx_slide_b.ogg, sfx_quit.ogg (2026-10-26)
+sfx_win_jingle.ogg, sfx_firework_1.ogg, sfx_firework_2.ogg, sfx_firework_3.ogg (2026-10-27, ElevenLabs)
+  Made for Arrow Crush by its developer (Contant Creation Studio) with
+  AI audio tools on a paid, commercial-use subscription (Suno / ElevenLabs).
+  Keep the subscription receipt for the month these files were made as proof of licence.
+  Edited for the game (trimmed, faded, converted to OGG).
+
+Kenney sounds (impact*, click_002, confirmation_002, glass_002): CC0, see the Kenney license files.

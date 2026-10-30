@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff3b0"/>
+      <stop offset="0.35" stop-color="#ffd23f"/>
+      <stop offset="0.75" stop-color="#f9a825"/>
+      <stop offset="1" stop-color="#f57c00"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e08a00"/>
+      <stop offset="1" stop-color="#9a3d00"/>
+    </linearGradient>
+    <linearGradient id="inner" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe680"/>
+      <stop offset="1" stop-color="#ffb300"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- soft drop shadow -->
+  <path d="M24 5.2 L29.6 16.6 L42.2 18.4 L33.1 27.3 L35.3 39.8 L24 33.9 L12.7 39.8 L14.9 27.3 L5.8 18.4 L18.4 16.6 Z"
+        fill="#5b1a00" opacity="0.28" stroke="#5b1a00" stroke-width="4.5" stroke-linejoin="round" transform="translate(0 2.2)"/>
+  <!-- thick rounded rim -->
+  <path d="M24 5.2 L29.6 16.6 L42.2 18.4 L33.1 27.3 L35.3 39.8 L24 33.9 L12.7 39.8 L14.9 27.3 L5.8 18.4 L18.4 16.6 Z"
+        fill="url(#rim)" stroke="url(#rim)" stroke-width="5" stroke-linejoin="round"/>
+  <!-- gold face -->
+  <path d="M24 5.2 L29.6 16.6 L42.2 18.4 L33.1 27.3 L35.3 39.8 L24 33.9 L12.7 39.8 L14.9 27.3 L5.8 18.4 L18.4 16.6 Z"
+        fill="url(#face)" stroke="#ffcf3a" stroke-width="1.6" stroke-linejoin="round"/>
+  <!-- raised inner star (bevel) -->
+  <path d="M24 12.4 L27.3 19.2 L34.6 20.2 L29.3 25.4 L30.6 32.6 L24 29.2 L17.4 32.6 L18.7 25.4 L13.4 20.2 L20.7 19.2 Z"
+        fill="url(#inner)" stroke="#ffe9a0" stroke-width="0.8" stroke-linejoin="round" opacity="0.85"/>
+  <!-- glossy top highlight -->
+  <path d="M24 7.6 L28.6 17.2 L38.6 18.8 L31 22.6 C27 20.4 21 20.4 17 22.6 L9.4 18.8 L19.4 17.2 Z"
+        fill="url(#gloss)" opacity="0.55"/>
+  <!-- shine streak + sparkle -->
+  <path d="M17.2 18.2 L20.6 11.4" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" opacity="0.95"/>
+  <circle cx="21.6" cy="9.4" r="1.1" fill="#ffffff" opacity="0.95"/>
+</svg>

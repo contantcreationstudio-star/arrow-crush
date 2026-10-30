@@ -1,0 +1,507 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/GameScene.gd" id="1_game"]
+[ext_resource type="Script" path="res://scripts/MazeBoard.gd" id="2_maze"]
+[ext_resource type="Texture2D" path="res://icons/back.svg" id="3_back"]
+[ext_resource type="Texture2D" path="res://icons/gear.svg" id="5_gear"]
+[ext_resource type="Texture2D" path="res://icons/heart_glossy.svg" id="6_heart"]
+[ext_resource type="Texture2D" path="res://icons/undo.svg" id="7_undo"]
+[ext_resource type="Texture2D" path="res://icons/hint.svg" id="8_hint"]
+[ext_resource type="Texture2D" path="res://icons/star.svg" id="9_star"]
+[ext_resource type="Texture2D" path="res://icons/bolt.svg" id="10_bolt"]
+[ext_resource type="Script" path="res://scripts/PowerButton.gd" id="11_power"]
+[ext_resource type="Texture2D" path="res://icons/play_ad.svg" id="12_ad"]
+[ext_resource type="Script" path="res://scripts/BowMeter.gd" id="13_bow"]
+[ext_resource type="Script" path="res://scripts/HeaderBg.gd" id="14_header"]
+[ext_resource type="Texture2D" path="res://icons/quiver.svg" id="15_quiver"]
+[ext_resource type="Script" path="res://scripts/Mascot.gd" id="16_mascot"]
+
+[sub_resource type="SystemFont" id="font_title"]
+font_names = PackedStringArray("Nunito", "Roboto", "Segoe UI", "Arial", "sans-serif")
+font_weight = 900
+
+[sub_resource type="StyleBoxFlat" id="chip_dark"]
+content_margin_left = 10.0
+content_margin_top = 4.0
+content_margin_right = 16.0
+content_margin_bottom = 4.0
+bg_color = Color(0.117647, 0.105882, 0.294118, 0.45)
+corner_radius_top_left = 26
+corner_radius_top_right = 26
+corner_radius_bottom_right = 26
+corner_radius_bottom_left = 26
+
+[sub_resource type="StyleBoxFlat" id="goal_card"]
+content_margin_left = 14.0
+content_margin_top = 2.0
+content_margin_right = 14.0
+content_margin_bottom = 6.0
+bg_color = Color(1, 0.984314, 0.94902, 1)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 6
+border_color = Color(0.85098, 0.756863, 0.988235, 1)
+corner_radius_top_left = 24
+corner_radius_top_right = 24
+corner_radius_bottom_right = 24
+corner_radius_bottom_left = 24
+shadow_color = Color(0.0588235, 0.0509804, 0.2, 0.2)
+shadow_size = 6
+shadow_offset = Vector2(0, 3)
+
+[node name="GameScene" type="Node2D"]
+script = ExtResource("1_game")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="Margin" type="MarginContainer" parent="HUD"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/margin_left = 0
+theme_override_constants/margin_top = 0
+theme_override_constants/margin_right = 0
+theme_override_constants/margin_bottom = 48
+
+[node name="VBox" type="VBoxContainer" parent="HUD/Margin"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 14
+
+[node name="Header" type="MarginContainer" parent="HUD/Margin/VBox"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/margin_left = 22
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 22
+theme_override_constants/margin_bottom = 30
+script = ExtResource("14_header")
+
+[node name="HeaderBox" type="VBoxContainer" parent="HUD/Margin/VBox/Header"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 10
+
+[node name="TopRow" type="HBoxContainer" parent="HUD/Margin/VBox/Header/HeaderBox"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Left" type="HBoxContainer" parent="HUD/Margin/VBox/Header/HeaderBox/TopRow"]
+custom_minimum_size = Vector2(200, 0)
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 10
+
+[node name="BackButton" type="Button" parent="HUD/Margin/VBox/Header/HeaderBox/TopRow/Left"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(58, 58)
+layout_mode = 2
+size_flags_vertical = 4
+icon = ExtResource("3_back")
+icon_alignment = 1
+
+[node name="Mid" type="CenterContainer" parent="HUD/Margin/VBox/Header/HeaderBox/TopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="DifficultyBadge" type="PanelContainer" parent="HUD/Margin/VBox/Header/HeaderBox/TopRow/Mid"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+
+[node name="LevelLabel" type="Label" parent="HUD/Margin/VBox/Header/HeaderBox/TopRow/Mid/DifficultyBadge"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0.0823529, 0.329412, 0.172549, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.25)
+theme_override_constants/outline_size = 10
+theme_override_constants/shadow_offset_y = 3
+theme_override_fonts/font = SubResource("font_title")
+theme_override_font_sizes/font_size = 28
+text = "Level 1"
+horizontal_alignment = 1
+
+[node name="Right" type="HBoxContainer" parent="HUD/Margin/VBox/Header/HeaderBox/TopRow"]
+custom_minimum_size = Vector2(200, 0)
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 10
+alignment = 2
+
+[node name="QuiverChip" type="PanelContainer" parent="HUD/Margin/VBox/Header/HeaderBox/TopRow/Right"]
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_override_styles/panel = SubResource("chip_dark")
+
+[node name="Row" type="HBoxContainer" parent="HUD/Margin/VBox/Header/HeaderBox/TopRow/Right/QuiverChip"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="Icon" type="TextureRect" parent="HUD/Margin/VBox/Header/HeaderBox/TopRow/Right/QuiverChip/Row"]
+custom_minimum_size = Vector2(32, 32)
+layout_mode = 2
+mouse_filter = 2
+texture = ExtResource("15_quiver")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="QuiverLabel" type="Label" parent="HUD/Margin/VBox/Header/HeaderBox/TopRow/Right/QuiverChip/Row"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_fonts/font = SubResource("font_title")
+theme_override_font_sizes/font_size = 24
+text = "5"
+
+[node name="SettingsButton" type="Button" parent="HUD/Margin/VBox/Header/HeaderBox/TopRow/Right"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(58, 58)
+layout_mode = 2
+size_flags_vertical = 4
+icon = ExtResource("5_gear")
+icon_alignment = 1
+
+[node name="MainRow" type="HBoxContainer" parent="HUD/Margin/VBox/Header/HeaderBox"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 14
+
+[node name="LeftCol" type="VBoxContainer" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow"]
+custom_minimum_size = Vector2(124, 0)
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 0
+alignment = 1
+
+[node name="HeartsRow" type="HBoxContainer" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow/LeftCol"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 4
+alignment = 1
+
+[node name="Heart1" type="TextureRect" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow/LeftCol/HeartsRow"]
+custom_minimum_size = Vector2(28, 28)
+layout_mode = 2
+mouse_filter = 2
+texture = ExtResource("6_heart")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Heart2" type="TextureRect" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow/LeftCol/HeartsRow"]
+custom_minimum_size = Vector2(28, 28)
+layout_mode = 2
+mouse_filter = 2
+texture = ExtResource("6_heart")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Heart3" type="TextureRect" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow/LeftCol/HeartsRow"]
+custom_minimum_size = Vector2(28, 28)
+layout_mode = 2
+mouse_filter = 2
+texture = ExtResource("6_heart")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="BigNumber" type="Label" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow/LeftCol"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.992157, 0.878431, 0.278431, 1)
+theme_override_colors/font_outline_color = Color(0.117647, 0.105882, 0.294118, 1)
+theme_override_colors/font_shadow_color = Color(0.0588235, 0.0509804, 0.2, 0.45)
+theme_override_constants/outline_size = 12
+theme_override_constants/shadow_offset_y = 3
+theme_override_fonts/font = SubResource("font_title")
+theme_override_font_sizes/font_size = 56
+text = "25"
+horizontal_alignment = 1
+
+[node name="BigCaption" type="Label" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow/LeftCol"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0.572549, 0.25098, 0.054902, 1)
+theme_override_constants/outline_size = 6
+theme_override_fonts/font = SubResource("font_title")
+theme_override_font_sizes/font_size = 16
+text = "MOVES"
+horizontal_alignment = 1
+
+[node name="ClockLabel" type="Label" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow/LeftCol"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_fonts/font = SubResource("font_title")
+theme_override_font_sizes/font_size = 24
+text = "1:20"
+horizontal_alignment = 1
+
+[node name="CenterCol" type="VBoxContainer" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+theme_override_constants/separation = 10
+alignment = 1
+
+[node name="Progress" type="Control" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow/CenterCol"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 30)
+layout_mode = 2
+mouse_filter = 2
+script = ExtResource("13_bow")
+
+[node name="GoalCard" type="PanelContainer" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow/CenterCol"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 62)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("goal_card")
+
+[node name="GoalRow" type="HBoxContainer" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow/CenterCol/GoalCard"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 24
+alignment = 1
+
+[node name="Mascot" type="Control" parent="HUD/Margin/VBox/Header/HeaderBox/MainRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(106, 106)
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+script = ExtResource("16_mascot")
+
+[node name="BoardSpace" type="Control" parent="HUD/Margin/VBox"]
+unique_name_in_owner = true
+clip_contents = true
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2
+
+[node name="Maze" type="Node2D" parent="HUD/Margin/VBox/BoardSpace"]
+unique_name_in_owner = true
+script = ExtResource("2_maze")
+
+[node name="TipLabel" type="Label" parent="HUD/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.392157, 0.454902, 0.545098, 1)
+theme_override_font_sizes/font_size = 26
+text = "Tap an arrow whose path is clear!"
+horizontal_alignment = 1
+
+[node name="BottomBar" type="HBoxContainer" parent="HUD/Margin/VBox"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 64
+alignment = 1
+
+[node name="UndoButton" type="Button" parent="HUD/Margin/VBox/BottomBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(130, 130)
+layout_mode = 2
+theme_type_variation = &"CircleButton"
+icon = ExtResource("7_undo")
+icon_alignment = 1
+
+[node name="UndoBadge" type="Label" parent="HUD/Margin/VBox/BottomBar/UndoButton"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -36.0
+offset_top = -4.0
+offset_right = 4.0
+offset_bottom = 36.0
+grow_horizontal = 0
+theme_type_variation = &"CountBadge"
+text = "2"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="PowerButton" type="Button" parent="HUD/Margin/VBox/BottomBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(130, 130)
+layout_mode = 2
+theme_type_variation = &"CircleButton"
+icon = ExtResource("10_bolt")
+icon_alignment = 1
+script = ExtResource("11_power")
+
+[node name="PowerBadge" type="Label" parent="HUD/Margin/VBox/BottomBar/PowerButton"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -36.0
+offset_top = -4.0
+offset_right = 4.0
+offset_bottom = 36.0
+grow_horizontal = 0
+theme_type_variation = &"CountBadge"
+text = "1"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="HintButton" type="Button" parent="HUD/Margin/VBox/BottomBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(130, 130)
+layout_mode = 2
+theme_type_variation = &"CircleButton"
+icon = ExtResource("8_hint")
+icon_alignment = 1
+
+[node name="HintBadge" type="Label" parent="HUD/Margin/VBox/BottomBar/HintButton"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -36.0
+offset_top = -4.0
+offset_right = 4.0
+offset_bottom = 36.0
+grow_horizontal = 0
+theme_type_variation = &"CountBadge"
+text = "2"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Banner" type="Label" parent="HUD"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 3
+anchors_preset = 14
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_top = -60.0
+offset_bottom = 60.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.937255, 0.266667, 0.266667, 1)
+theme_override_colors/font_outline_color = Color(1, 1, 1, 1)
+theme_override_constants/outline_size = 18
+theme_override_fonts/font = SubResource("font_title")
+theme_override_font_sizes/font_size = 72
+text = "HARD LEVEL"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ResultPopup" type="Control" parent="HUD"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Dim" type="ColorRect" parent="HUD/ResultPopup"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.0588235, 0.0901961, 0.164706, 0.45)
+
+[node name="Center" type="CenterContainer" parent="HUD/ResultPopup"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="ResultPanel" type="PanelContainer" parent="HUD/ResultPopup/Center"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(540, 0)
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="HUD/ResultPopup/Center/ResultPanel"]
+layout_mode = 2
+theme_override_constants/separation = 22
+
+[node name="ResultTitle" type="Label" parent="HUD/ResultPopup/Center/ResultPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.117647, 0.227451, 0.541176, 1)
+theme_override_font_sizes/font_size = 46
+text = "Level Complete!"
+horizontal_alignment = 1
+
+[node name="Stars" type="HBoxContainer" parent="HUD/ResultPopup/Center/ResultPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="Star1" type="TextureRect" parent="HUD/ResultPopup/Center/ResultPanel/VBox/Stars"]
+custom_minimum_size = Vector2(84, 84)
+layout_mode = 2
+texture = ExtResource("9_star")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Star2" type="TextureRect" parent="HUD/ResultPopup/Center/ResultPanel/VBox/Stars"]
+custom_minimum_size = Vector2(104, 104)
+layout_mode = 2
+texture = ExtResource("9_star")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Star3" type="TextureRect" parent="HUD/ResultPopup/Center/ResultPanel/VBox/Stars"]
+custom_minimum_size = Vector2(84, 84)
+layout_mode = 2
+texture = ExtResource("9_star")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="ResultMessage" type="Label" parent="HUD/ResultPopup/Center/ResultPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.392157, 0.454902, 0.545098, 1)
+theme_override_font_sizes/font_size = 28
+text = "All arrows escaped!"
+horizontal_alignment = 1
+
+[node name="NextButton" type="Button" parent="HUD/ResultPopup/Center/ResultPanel/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 96)
+layout_mode = 2
+theme_type_variation = &"PrimaryButton"
+theme_override_font_sizes/font_size = 34
+text = "Next Level"
+
+[node name="ContinueButton" type="Button" parent="HUD/ResultPopup/Center/ResultPanel/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 100)
+layout_mode = 2
+theme_type_variation = &"PrimaryButton"
+theme_override_font_sizes/font_size = 32
+text = "  +1 Heart (watch video)"
+icon = ExtResource("12_ad")
+
+[node name="RetryButton" type="Button" parent="HUD/ResultPopup/Center/ResultPanel/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 88)
+layout_mode = 2
+text = "Retry"
