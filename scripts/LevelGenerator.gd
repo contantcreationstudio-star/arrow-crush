@@ -77,12 +77,12 @@ static func daily_level(day: int) -> Dictionary:
 
 
 ## Board pieces a level gets, by level number. Each one is introduced alone on a few
-## levels of its own, then mixed into later levels:
+## levels of its own, then mixed into later levels. Every level has a CRUSH goal; the
+## board pieces below are goals too - the level is won when all of them are done:
 ##   balloons (from 1)  - short arrows are carved out and replaced by balloons; arrows
 ##                        pop a balloon when they leave next to it or fly through it.
-##                        The level is won when every balloon is popped.
 ##   targets (from 12)  - bullseyes just outside the shape; an escaping arrow whose lane
-##                        passes one hits it. Hit them all to win.
+##                        passes one hits it.
 ##   mirrors (from 21)  - empty cells with a mirror that turns arrows 90 degrees.
 ## Returns {balloons: arrows to carve, balloon_layers: max layers, targets: n, mirrors: n}.
 ##
@@ -94,6 +94,65 @@ static func daily_level(day: int) -> Dictionary:
 static func features_for(level: int) -> Dictionary:
 	var f := _board_features(level)
 	f.merge(_chain_touches(level))
+	if level > 110:
+		f.merge(_late_world(level), true)
+	return f
+
+
+## Widest board (cells). Above this a cell gets too small to read on a phone.
+const MAX_COLS := 18
+
+## Arrow-length feel of a level: [shortest, longest] arrow before the difficulty bonus.
+const MOODS := {
+	"short": Vector2i(2, 4),    # lots of small arrows: quick, crush-heavy
+	"mixed": Vector2i(2, 9),    # small and medium together
+	"snakes": Vector2i(4, 11),  # wavy snakes winding round each other
+	"long": Vector2i(5, 16),    # a few very long arrows across the whole board
+}
+const MOOD_ORDER: Array[String] = ["snakes", "short", "mixed", "long"]
+## Board piece each world puts in the spotlight (cycled across worlds 7-25).
+const FEATURED: Array[String] = ["balloons", "targets", "crates", "ice", "golden", "mirrors", "timers", "links", "flips"]
+
+
+## Levels 111-500, 20 per world: every world has its own main arrow feel (with a change
+## of pace every 5th level) and one featured board piece on most levels. Every 5th
+## level from the 3rd on is a "breather" without the featured piece.
+static func _late_world(level: int) -> Dictionary:
+	var w := (level - 1) / 20        # world index (0-based)
+	var k := (level - 1) % 20        # place in the world
+	var f := {}
+	var mood := MOOD_ORDER[w % MOOD_ORDER.size()]
+	if k % 5 == 4:
+		mood = MOOD_ORDER[(w + 1 + k / 5) % MOOD_ORDER.size()]
+	f.mood = mood
+	f.wind = {"short": 0.1, "mixed": 0.3, "snakes": 0.7, "long": 0.55}[mood]
+	if k % 5 == 2:
+		return f  # breather
+	var tough := clampf((w - 5) / 19.0, 0.0, 1.0)   # 0 in world 6 .. 1 in world 25
+	match FEATURED[w % FEATURED.size()]:
+		"balloons":
+			f.balloons = 3 + roundi(tough * 4.0)
+			f.balloon_layers = 2 + int(tough > 0.5)
+		"targets":
+			f.targets = 2 + roundi(tough * 2.0)
+		"crates":
+			f.crates = 4 + roundi(tough * 5.0)
+			f.crate_layers = 2 + int(tough > 0.5)
+			f.erase("ice")
+		"ice":
+			f.ice = 3 + roundi(tough * 3.0)
+			f.ice_layers = 1 + int(tough > 0.4)
+			f.erase("crates")
+		"golden":
+			f.golden = 1 + int(tough > 0.5)
+		"mirrors":
+			f.mirrors = 3 + roundi(tough * 3.0)
+		"timers":
+			f.timers = 1 + int(tough > 0.5)
+		"links":
+			f.links = 1 + int(tough > 0.5)
+		"flips":
+			f.flips = 2 + int(tough > 0.6)
 	return f
 
 
@@ -187,13 +246,21 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 
 	# Board size and arrow length grow smoothly with difficulty: from an 8x10 warm-up
 	# to a 24x29 maze packed with ~100 arrows at the top end.
-	var cols := clampi(roundi(lerpf(8.0, 24.0, d)), 8, 24)
+	# Capped at MAX_COLS: past that a cell is too small on a phone and arrows turn into
+	# threads. Harder levels get harder through longer arrows and board pieces instead.
+	var cols := clampi(roundi(lerpf(8.0, float(MAX_COLS), d)), 8, MAX_COLS)
 	if level > 100:
-		cols = clampi(roundi(lerpf(16.0, 24.0, d)), 16, 24)  # long snakes need room: a bigger board
+		cols = clampi(roundi(lerpf(13.0, float(MAX_COLS), d)), 13, MAX_COLS)  # long snakes need room
+	# Every level gets its own outline that no other level uses (see ShapeFactory). A
+	# picture needs a board wide enough to stay recognisable (its min_cols).
+	var recipe := ShapeFactory.recipe_for(level)
+	if recipe.has("min_cols"):
+		# Pictures read best with room: never below 12 cells (14 after the first worlds).
+		var room := 12 if level < 20 else 14
+		cols = clampi(maxi(cols, maxi(int(recipe.min_cols), room)), 8, MAX_COLS)
 	var rows := roundi(cols * 1.15) + 1
-	# Every level gets its own outline that no other level uses (see ShapeFactory).
 	var shape := "shape-%d" % level
-	var mask := _make_mask(ShapeFactory.recipe_for(level), cols, rows)
+	var mask := _make_mask(recipe, cols, rows)
 
 	# Fast tappers get more (shorter) arrows to scan; slow thinkers fewer, longer ones.
 	var min_len := 2 + roundi(d)
@@ -202,7 +269,13 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 	# ones - a dense board where every lane runs through a crowd is what makes it hard.
 	var harden_pre := hardening_for(level, d)
 	var wind: float = features.get("wind", 0.0)
-	if level > 100:
+	var mood: String = features.get("mood", "")
+	if mood != "":
+		# Worlds 111-500: each level has a feel of its own (see _late_world).
+		var lens: Vector2i = MOODS[mood]
+		min_len = lens.x
+		max_len = lens.y + roundi(d * 2.0)
+	elif level > 100:
 		# Wavy chapter: fewer, longer snakes winding around each other.
 		min_len = 4
 		max_len += 5
@@ -224,7 +297,12 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 	for k in candidates:
 		var rng := RandomNumberGenerator.new()
 		rng.seed = level * 1009 + k * 7 + roundi(d * 20.0) * 31 + 13
-		var tiles := _tile(mask, len_range, rng, wind)
+		# The outline first (from level 2): the arrows themselves draw the picture's edge.
+		var outline: Array = []
+		if level >= 2:
+			var seg := Vector2i(clampi(len_range.y - 2, 4, 9), clampi(len_range.y + 3, 6, 14))
+			outline = _contour_arrows(mask, 1 if cols < 13 else 2, seg, rng)
+		var tiles := _tile(mask, len_range, rng, wind, outline)
 		var cand_mirrors := _carve_mirrors(tiles, int(features.get("mirrors", 0)), rng)
 		_make_solvable(tiles, cols, rows, rng, cand_mirrors)
 		var stats := _analyse(tiles, cols, rows, cand_mirrors)
@@ -320,6 +398,13 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 		# Creep: light on the first levels (one cell, one wave), a longer ripple on hard mazes.
 		"creep": int(features.get("creep", 0)),
 		"creep_waves": 1 if level < 8 else clampi(1 + roundi(d * 4.0), 1, 5),
+		# Magnet: an arrow facing a fresh gap slides over to a same-colour arrow and crushes it.
+		"magnet": level >= 2,
+		# Picture levels: the picture itself, drawn as a soft silhouette behind the board.
+		"picture": {"bits": recipe.bitmap, "bw": recipe.bw, "bh": recipe.bh, "fit": recipe.fit} \
+			if recipe.has("bitmap") else {},
+		# Crushes a careful player can make (the level's crush goal is a share of this).
+		"crush_max": estimate_crushes(arrows, _crush_colors(colors, links, ice), cols, rows, mirrors, prisms),
 	}
 
 
@@ -1097,13 +1182,15 @@ static func _pick_targets(arrows: Array, mirrors: Dictionary, mask: Dictionary, 
 static func _assign_colors(arrows: Array, cols: int, rows: int, d: float, level: int, mirrors: Dictionary = {},
 		harden: float = 0.0) -> Array[int]:
 	var n_colors := 3 if d < 0.4 else 4
-	var force_chance := lerpf(0.35, 0.18, d)
+	# Crushing is the goal of every level, so plenty of arrows get a same-colour arrow
+	# right in their way (a crush pair).
+	var force_chance := lerpf(0.5, 0.3, d)
 	var avoid_chance := lerpf(0.15, 0.4, d)
-	# Labyrinth levels: crushes are rare finds, not everywhere. More colours, few crush
-	# pairs, and almost every other blocked arrow is a different colour (tapping it bumps).
+	# Labyrinth levels: crushes are rarer finds. More colours, fewer crush pairs, and most
+	# other blocked arrows are a different colour (tapping it bumps).
 	if harden > 0.0:
 		n_colors += roundi(2.0 * harden)
-		force_chance = lerpf(force_chance, 0.06, harden)
+		force_chance = lerpf(force_chance, 0.14, harden)
 		avoid_chance = lerpf(avoid_chance, 1.0, harden)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = level * 7717 + 3
@@ -1329,9 +1416,15 @@ static func _palette_of(colors: Array) -> Array[int]:
 ## `wind` (0..1) is the share of arrows that are wavy snakes: they turn every 1-2 cells,
 ## either swinging left-right (a wave / staircase) or always the same way (a hook, U-turn
 ## or spiral that curls around its neighbours), and they are longer than the rest.
-static func _tile(mask: Dictionary, len_range: Vector2i, rng: RandomNumberGenerator, wind: float = 0.0) -> Array:
+static func _tile(mask: Dictionary, len_range: Vector2i, rng: RandomNumberGenerator, wind: float = 0.0,
+		pre: Array = []) -> Array:
 	var owner := {}  # cell -> arrow index (-1 = permanent gap)
 	var arrows: Array = []
+	# Arrows already laid (the outline rings, see _contour_arrows) stay as they are.
+	for walk: Array in pre:
+		for c: Vector2i in walk:
+			owner[c] = arrows.size()
+		arrows.append(walk)
 	while true:
 		var start := _pick_start(mask, owner, rng)
 		if start.x < 0:
@@ -1400,6 +1493,67 @@ static func _tile(mask: Dictionary, len_range: Vector2i, rng: RandomNumberGenera
 			owner[start] = owner[nb]
 			break
 	return arrows
+
+
+## Outline arrows: long arrows laid end to end along the shape's edge (and one ring further
+## in on big boards), all running the same way round - so the picture is drawn by the
+## arrows themselves, like a lion's mane or a butterfly's wing edge.
+static func _contour_arrows(mask: Dictionary, rings: int, seg: Vector2i, rng: RandomNumberGenerator) -> Array:
+	var out: Array = []
+	var inner := mask.duplicate()
+	for r in rings:
+		var ring := {}
+		for c: Vector2i in inner:
+			for d: Vector2i in DIRS:
+				if not inner.has(c + d):
+					ring[c] = true
+					break
+		if ring.size() < 8:
+			break
+		for chain: Array in _ring_chains(ring):
+			var i := 0
+			while i < chain.size():
+				var want := rng.randi_range(seg.x, seg.y)
+				var piece: Array[Vector2i] = []
+				for k in range(i, mini(i + want, chain.size())):
+					piece.append(chain[k])
+				i += want
+				if piece.size() >= 2:
+					out.append(piece)
+				elif not out.is_empty() and out[-1].size() < seg.y + 2 and (out[-1][-1] - piece[0]).length_squared() == 1:
+					out[-1].append(piece[0])  # a one-cell end joins the arrow before it
+		for c: Vector2i in ring:
+			inner.erase(c)
+	return out
+
+
+## Orders ring cells into walks that follow the edge (wall-following, outside kept on the
+## left), starting at the top-left. A ring may break into a few walks at narrow necks.
+static func _ring_chains(ring: Dictionary) -> Array:
+	var left := ring.duplicate()
+	var chains: Array = []
+	while not left.is_empty():
+		var start: Vector2i = left.keys()[0]
+		for c: Vector2i in left:
+			if c.y < start.y or (c.y == start.y and c.x < start.x):
+				start = c
+		var chain: Array[Vector2i] = [start]
+		left.erase(start)
+		var heading := Vector2i.RIGHT
+		while true:
+			var moved := false
+			for d: Vector2i in [Vector2i(heading.y, -heading.x), heading, Vector2i(-heading.y, heading.x)]:
+				var nxt: Vector2i = chain[-1] + d
+				if left.has(nxt):
+					chain.append(nxt)
+					left.erase(nxt)
+					heading = d
+					moved = true
+					break
+			if not moved:
+				break
+		chains.append(chain)
+	return chains
 
 
 static func _pick_start(mask: Dictionary, owner: Dictionary, rng: RandomNumberGenerator) -> Vector2i:
@@ -1608,6 +1762,74 @@ static func estimate_taps(arrows: Array, colors: Array, cols: int, rows: int, mi
 			for c: Vector2i in arrows[j]:
 				occ.erase(c)
 	return taps
+
+
+## Colours for the crush estimate: linked arrows never crush (they only fly out together)
+## and frozen ones are left out too, so the crush goal never counts on them.
+static func _crush_colors(colors: Array, links: Array, ice: Dictionary) -> Array:
+	var out := colors.duplicate()
+	for pair: Array in links:
+		for i: int in pair:
+			out[i] = 1000 + i
+	for i: int in ice:
+		out[i] = 1000 + i
+	return out
+
+
+## How many arrows a careful player can crush on this board: always take the biggest
+## crush on offer; when there is none, fly out the free arrow whose leaving opens the most
+## new crushes. Ignores creep, magnet and special arrows (they only add crushes), so it
+## is a safe base for the level's crush goal.
+static func estimate_crushes(arrows: Array, colors: Array, cols: int, rows: int, mirrors: Dictionary = {},
+		prisms: Array = []) -> int:
+	var prism := {}
+	for i: int in prisms:
+		prism[i] = true
+	var occ := {}
+	for i in arrows.size():
+		for c: Vector2i in arrows[i]:
+			occ[c] = i
+	var alive := {}
+	for i in arrows.size():
+		alive[i] = true
+	var crushed := 0
+	while not alive.is_empty():
+		var best: Array = []
+		var free: Array[int] = []
+		var hits := {}  # arrow -> first arrow in its way
+		for i: int in alive:
+			var removed := _tap_result(i, arrows, colors, occ, cols, rows, mirrors, prism)
+			if removed.size() >= 2 and removed.size() > best.size():
+				best = removed
+			elif removed.size() == 1:
+				free.append(i)
+			if removed.size() != 1:
+				hits[i] = _first_hit(i, arrows, occ, cols, rows, {}, mirrors)
+		if best.is_empty():
+			if free.is_empty():
+				break  # cannot happen on a solvable maze
+			# No crush right now: fly out the arrow that unblocks the most same-colour pairs.
+			var pick := free[0]
+			var most := -1
+			for f: int in free:
+				var opens := 0
+				for j: int in hits:
+					if hits[j] != f:
+						continue
+					var nxt := _first_hit(j, arrows, occ, cols, rows, {f: true}, mirrors)
+					if nxt >= 0 and _crushes(colors, prism, j, nxt):
+						opens += 1
+				if opens > most:
+					most = opens
+					pick = f
+			best = [pick]
+		else:
+			crushed += best.size()
+		for j: int in best:
+			alive.erase(j)
+			for c: Vector2i in arrows[j]:
+				occ.erase(c)
+	return crushed
 
 
 ## Arrows removed by tapping arrow `i` (empty = it would bump).

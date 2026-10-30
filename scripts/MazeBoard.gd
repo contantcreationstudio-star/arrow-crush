@@ -138,6 +138,9 @@ var _crate_view := {}                 # layers as drawn (a knock shows a moment 
 var color_removed := {}               # colour index -> arrows of that colour removed so far
 var _cracked := {}                    # obstacles already cracked by the current tap
 var golden_out := 0                   # golden arrows flown out so far
+var crushed := 0                      # arrows broken (crush, domino, blast) - flying out doesn't count
+var magnet := false                   # arrows facing a fresh gap slide over to a same-colour arrow and crush it
+const MAGNET_REACH := 3               # most empty cells a magnet slide crosses
 var bonus_out := 0                    # bonus arrows flown out before their count hit 0
 const BONUS_COINS := 15               # coins per bonus arrow, paid when the level is won
 
@@ -254,6 +257,16 @@ func build(data: Dictionary) -> void:
 	_fx_layer.z_index = 10
 	_fx_layer.draw.connect(_draw_fx)
 	add_child(_fx_layer)
+	# Picture levels: a soft, smooth silhouette of the picture (cat, teapot...) behind
+	# everything, so the player sees what the arrows are drawing from the very start - the
+	# board's big cells alone can't show the fine outline.
+	_silhouette = null  # made below, once the board size is known
+	var pic_layer := Node2D.new()
+	pic_layer.show_behind_parent = true
+	pic_layer.draw.connect(func() -> void:
+		if _silhouette:
+			pic_layer.draw_texture_rect(_silhouette, _silhouette_rect, false, SILHOUETTE_TINT))
+	add_child(pic_layer)
 	# The painting draws behind the dots and pieces (same order as before), on its own layer.
 	_paint_layer = Node2D.new()
 	_paint_layer.show_behind_parent = true
@@ -272,6 +285,7 @@ func build(data: Dictionary) -> void:
 	cols = data.cols
 	rows = data.rows
 	mask = data.mask
+	_silhouette = _silhouette_texture(data.get("picture", {}))
 	creep_steps = int(data.get("creep", 0))
 	creep_waves = int(data.get("creep_waves", 1))
 	_intro_start = _clock
@@ -298,6 +312,8 @@ func build(data: Dictionary) -> void:
 	var ice: Dictionary = data.get("ice", {})
 	golden_out = 0
 	bonus_out = 0
+	crushed = 0
+	magnet = bool(data.get("magnet", false))
 	var golden: Array = data.get("golden", [])
 	var timers: Dictionary = data.get("timers", {})
 	var flips: Array = data.get("flips", [])
@@ -323,6 +339,37 @@ func build(data: Dictionary) -> void:
 		i += 1
 	_update_aimers()
 	queue_redraw()
+
+
+const SILHOUETTE_TINT := Color(0.66, 0.58, 0.98, 0.3)
+var _silhouette: Texture2D
+var _silhouette_rect := Rect2()
+
+
+## The picture's bit mask (from LevelGenerator: bits, bw, bh, fit) as a smooth texture,
+## and where it sits on the board. null on levels without a picture.
+func _silhouette_texture(pic: Dictionary) -> Texture2D:
+	if pic.is_empty():
+		return null
+	var bw: int = pic.bw
+	var bh: int = pic.bh
+	var bits: PackedByteArray = pic.bits
+	var img := Image.create(bw, bh, false, Image.FORMAT_LA8)
+	for y in bh:
+		for x in bw:
+			img.set_pixel(x, y, Color(1, 1, 1, 1.0 if bits[y * bw + x] else 0.0))
+	img.resize(bw * 4, bh * 4, Image.INTERPOLATE_CUBIC)  # smooth edges instead of steps
+	# Bitmap space: x -1..1, y -a..a (a = bh / bw); board: u = (x - f.x) / f.z, cell px.
+	var f: Vector4 = pic.fit
+	var a := float(bh) / bw
+	var to_board := func(p: Vector2) -> Vector2:
+		var u := (p.x - f.x) / f.z
+		var v := (p.y - f.y) / f.w
+		return Vector2((u + 1.0) * 0.5 * cols * CELL, (v + 1.0) * 0.5 * rows * CELL)
+	var tl: Vector2 = to_board.call(Vector2(-1, -a))
+	var br: Vector2 = to_board.call(Vector2(1, a))
+	_silhouette_rect = Rect2(tl, br - tl)
+	return ImageTexture.create_from_image(img)
 
 
 ## Fits the maze inside `rect` (the board area, in the parent's coordinates).
@@ -396,6 +443,7 @@ func undo() -> Dictionary:
 		if back.timer > 0:
 			bonus_out -= 1
 		color_removed[rec.color] = int(color_removed.get(rec.color, 1)) - 1
+	crushed -= int(entry.get("crushed", 0))
 	for c: Vector2i in entry.crates:
 		crates[c] = int(crates.get(c, 0)) + 1
 		_crate_view[c] = crates[c]
@@ -454,6 +502,8 @@ func hint_arrow() -> ArrowPath:
 	var urgent := _timer_way()
 	var free: ArrowPath = null
 	var shooter: ArrowPath = null  # no free arrow: one that can smash a crate / crack ice
+	var crusher: ArrowPath = null  # crushing is the goal: a same-colour crush is the best hint
+	var frees: Array[ArrowPath] = []  # arrows that can fly out right now
 	for a in arrows:
 		if a.busy or a.ice > 0:
 			continue
@@ -464,19 +514,52 @@ func hint_arrow() -> ArrowPath:
 			continue
 		var gap := a.blocked_gap(occupancy)
 		var cgap := _crate_gap(a)
+		if crusher == null and gap >= 0 and (cgap < 0 or cgap > gap) and a.special == ArrowPath.Special.NONE:
+			var blocker: ArrowPath = occupancy[a.lane_cells()[gap]]
+			if blocker != a and blocker.ice <= 0 and _crushes(a, blocker):
+				crusher = a
 		if gap < 0 and cgap < 0:
-			if urgent.has(a):
-				return a
-			if _aimers.has(a):
-				return a  # a free arrow that will hit a target is the best hint
+			frees.append(a)
 			if free == null:
 				free = a
 		elif shooter == null and (cgap >= 0 and (gap < 0 or cgap < gap)
 				or gap >= 0 and (occupancy[a.lane_cells()[gap]] as ArrowPath).ice > 0):
 			shooter = a
-	if shooter and free == null:
-		return shooter
-	return free if free else shooter
+	# Crushing is the goal: a crush first, then a ticking bonus arrow, then a target shot.
+	if crusher:
+		return crusher
+	for a in frees:
+		if urgent.has(a):
+			return a
+	for a in frees:
+		if _aimers.has(a):
+			return a
+	if not frees.is_empty():
+		return _best_opener(frees)
+	return shooter if shooter else free
+
+
+## Of the free arrows, the one whose leaving lets another arrow crush (its lane then runs
+## into a same-colour arrow). Falls back to the first one.
+func _best_opener(frees: Array[ArrowPath]) -> ArrowPath:
+	for f in frees:
+		var opens := false
+		for b in arrows:
+			if b == f or b.busy or b.ice > 0:
+				continue
+			var lane := b.lane_cells()
+			var gap := b.blocked_gap(occupancy)
+			if gap < 0 or occupancy[lane[gap]] != f:
+				continue
+			for i in range(gap + 1, lane.size()):
+				var other: ArrowPath = occupancy.get(lane[i])
+				if other == null or other == f:
+					continue
+				opens = other != b and _crushes(b, other)
+				break
+			if opens:
+				return f
+	return frees[0]
 
 
 ## A crate, balloon or frozen arrow that no arrow left on the board can ever reach (no
@@ -606,7 +689,7 @@ func snapshot() -> Dictionary:
 		list.append(_flags_of(a))
 	return {"arrows": list, "balloons": balloons.duplicate(), "crates": crates.duplicate(),
 		"targets": targets.duplicate(), "color_removed": color_removed.duplicate(), "golden_out": golden_out,
-		"bonus_out": bonus_out}
+		"bonus_out": bonus_out, "crushed": crushed}
 
 
 ## Builds the level from `data`, but with the board as saved in `snap` (see snapshot()).
@@ -666,6 +749,7 @@ func restore(data: Dictionary, snap: Dictionary) -> void:
 	color_removed = (snap.get("color_removed", {}) as Dictionary).duplicate()
 	golden_out = int(snap.get("golden_out", 0))
 	bonus_out = int(snap.get("bonus_out", 0))
+	crushed = int(snap.get("crushed", 0))
 	_update_aimers()
 	goals_changed.emit()
 	queue_redraw()
@@ -1066,8 +1150,8 @@ func _on_arrow_tapped(arrow: ArrowPath) -> void:
 		if _free_with(arrow, partner) and _free_with(partner, arrow) and not partner.busy:
 			# Both lanes clear: the pair flies out together.
 			_begin_action(arrow)
-			_take(arrow)
-			_take(partner)
+			_take(arrow, 0.08, true)
+			_take(partner, 0.08, true)
 			_escape(arrow, 0.0)
 			_escape(partner, 0.06)
 			_say("LINKED x2!", Color("#64748b"), arrow.head(), 0.1)
@@ -1111,7 +1195,7 @@ func _on_arrow_tapped(arrow: ArrowPath) -> void:
 		_finish_action(true)
 	elif blocker == null:
 		_begin_action(arrow)
-		_take(arrow)
+		_take(arrow, 0.08, true)
 		_escape(arrow, 0.0)
 		_finish_action(false)
 	elif blocker != arrow and _crushes(arrow, blocker):
@@ -1187,8 +1271,10 @@ func _crack_ice(arrow: ArrowPath, delay: float, once_per_tap: bool = true) -> vo
 	_burst(mid, Color.WHITE, delay, 8)
 	if arrow.ice == 0:
 		_say("FREE!", Color("#0284c7"), arrow.head(), delay)
+	# Read the ice now: the arrow itself may be gone (crushed) before the sound plays.
+	var pitch := 1.0 if arrow.ice > 0 else 0.8
 	_later(delay, func() -> void:
-		GameData.play_sfx("crack", 1.0 if arrow.ice > 0 else 0.8)
+		GameData.play_sfx("crack", pitch)
 		goals_changed.emit())
 	_extend(delay + 0.3)
 
@@ -1235,8 +1321,8 @@ func _begin_action(arrow: ArrowPath, power: bool = false) -> void:
 
 ## Takes an arrow out of the puzzle logic right away (its animation may still run).
 ## Balloons next to it lose a layer `delay` seconds from now. Returns false if it was
-## already taken.
-func _take(arrow: ArrowPath, delay: float = 0.08) -> bool:
+## already taken. Everything that is not `escaping` (flying out) counts as a crush.
+func _take(arrow: ArrowPath, delay: float = 0.08, escaping: bool = false) -> bool:
 	if not arrows.has(arrow):
 		return false
 	_entry.arrows.append(_flags_of(arrow))
@@ -1250,6 +1336,10 @@ func _take(arrow: ArrowPath, delay: float = 0.08) -> bool:
 		goal_piece.emit("golden", at, delay, null, -1)
 	else:
 		goal_piece.emit("arrow", at, delay, null, arrow.color_index)
+	if not escaping:
+		crushed += 1
+		_entry.crushed = int(_entry.get("crushed", 0)) + 1
+		goal_piece.emit("crush", at, delay, null, arrow.color_index)
 	if arrow.timer > 0:
 		bonus_out += 1
 		_say("BONUS +%d" % BONUS_COINS, Color("#d97706"), arrow.head(), delay)
@@ -1407,10 +1497,10 @@ func _escape(arrow: ArrowPath, delay: float) -> void:
 
 
 ## Same colour: `a` rushes into `b` and both break apart.
-func _crush(a: ArrowPath, b: ArrowPath, gap: int) -> void:
+func _crush(a: ArrowPath, b: ArrowPath, gap: int, delay: float = 0.0) -> void:
 	var hit_cell := a.lane_cells()[gap]
 	var power := crush_power(a)
-	var t := a.crush_into(gap, 0.0, power)
+	var t := a.crush_into(gap, delay, power)
 	_focus = hit_cell
 	_shatter_fx(a, t, _center(hit_cell))
 	_destroy(b, t)
@@ -1868,7 +1958,7 @@ func _cascade() -> void:
 				continue
 			if a.blocked_gap(occupancy) >= 0 or _crate_gap(a) >= 0 or not _lane_touches_removed(a):
 				continue
-			_take(a)
+			_take(a, 0.08, true)
 			t += 0.12
 			_escape(a, t)
 			found = true
@@ -1879,13 +1969,13 @@ func _cascade() -> void:
 ## creep_steps cells). The cells they leave behind start the next wave, up to creep_waves
 ## waves - a light ripple through the maze. Undo puts them back (entry.crept).
 func _creep() -> void:
-	if creep_steps <= 0 or _removed_cells.is_empty() or arrows.is_empty():
+	if (creep_steps <= 0 and not magnet) or _removed_cells.is_empty() or arrows.is_empty():
 		return
 	var freed := _removed_cells.duplicate()
 	var delay := 0.22
 	var moved := 0
 	var checks := [CREEP_CHECKS]
-	for wave in creep_waves:
+	for wave in maxi(1, creep_waves):
 		var next := {}
 		for a in arrows.duplicate():
 			if moved >= CREEP_MAX:
@@ -1894,6 +1984,13 @@ func _creep() -> void:
 				continue
 			var lane: Array[Vector2i] = a.lane_cells()
 			if lane.is_empty() or not freed.has(lane[0]):
+				continue
+			var pulled := _magnet_pull(a, lane, delay + randf_range(0.0, 0.05))
+			if not pulled.is_empty():
+				next.merge(pulled)  # the cells it and its partner left pull the next wave
+				moved += 1
+				continue
+			if creep_steps <= 0:
 				continue
 			var steps := 0
 			# Never further than its own length - 1: the arrow keeps at least one of its cells.
@@ -1920,6 +2017,33 @@ func _creep() -> void:
 		delay += 0.16
 	if moved > 0:
 		_update_aimers()
+
+
+## Magnet: `a` faces a gap the last move opened, and a same-colour arrow sits just past
+## the gap (at most MAGNET_REACH empty cells away). It slides across and crushes into it -
+## a chain reaction set off by the player's tap. Removing arrows never makes a maze
+## unsolvable, so no solvability check is needed. Returns the cells freed ({} = no pull).
+func _magnet_pull(a: ArrowPath, lane: Array[Vector2i], delay: float) -> Dictionary:
+	if not magnet or a.special != ArrowPath.Special.NONE or a.flip or a.golden:
+		return {}
+	var gap := 0
+	while gap < lane.size() and gap <= MAGNET_REACH and _creep_cell_ok(lane[gap]):
+		gap += 1
+	if gap == 0 or gap > MAGNET_REACH or gap >= lane.size():
+		return {}
+	var target: ArrowPath = occupancy.get(lane[gap])
+	if target == null or target == a or target.busy or target.ice > 0 or target.link_id >= 0 \
+			or target.special != ArrowPath.Special.NONE or not _crushes(a, target):
+		return {}
+	var freed := {}
+	for c in a.cells:
+		freed[c] = true
+	for c in target.cells:
+		freed[c] = true
+	_take(a, delay)
+	_crush(a, target, gap, delay)
+	_say("MAGNET!", a.base_color(), lane[gap], delay + 0.15)
+	return freed
 
 
 ## A cell an arrow may creep into: inside the shape and empty (no arrow, mirror,

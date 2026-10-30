@@ -2,10 +2,10 @@ extends Node
 ## Global autoload ("GameData"): progress, settings, local save and sound effects.
 
 const SAVE_PATH := "user://arrow_crush.cfg"
-const MAX_LEVELS := 110
+const MAX_LEVELS := 500
 const MIX_RATE := 22050
 const MAX_POWER := 5
-const DIFFICULTY_VERSION := 3  # bump when the difficulty curve changes
+const DIFFICULTY_VERSION := 4  # bump when the difficulty curve changes
 const MAX_BOOSTER := 9          # per booster kind
 ## Level each power unlocks at. New players start with Undo, Hint and the Drill only;
 ## the others arrive one by one, each with a couple free to try.
@@ -24,11 +24,14 @@ const BOOSTER_INFO := {"drill": "Smashes through every arrow in its path",
 const PRICES := {"hint": 60, "drill": 150, "bomb": 200, "laser": 250, "rainbow": 350}
 const CONTINUE_COINS := 120     # +moves / +time / +heart after failing, paid with coins
 const AD_COINS := 100           # rewarded video in the shop
+const COIN_VIDEOS_PER_DAY := 5  # free-coin videos per day (keeps coins worth earning and ad traffic natural)
 const START_COINS := 150
 const COINS_WIN := 20           # every win ...
 const COINS_PER_STAR := 10      # ... plus per star ...
 const COINS_PER_GOAL := 2       # ... plus per balloon layer popped / target hit / goal piece
 const COINS_DAILY := 60         # finishing a daily challenge (first time)
+var _coin_video_day := -1       # local day of the free-coin videos counted below
+var _coin_videos := 0           # free-coin videos watched on that day
 ## Quiver: arrows the player spends to try levels (5 max, one refills every 30 minutes).
 ## A lost level - or leaving one after the first tap - costs one. The first levels,
 ## the tutorial and the daily challenge are free.
@@ -162,6 +165,7 @@ func save_game() -> void:
 	cfg.set_value("progress", "stars", stars)
 	cfg.set_value("progress", "power_charges", power_charges)
 	cfg.set_value("progress", "coins", coins)
+	cfg.set_value("progress", "coin_videos", [_coin_video_day, _coin_videos])
 	cfg.set_value("progress", "boosters", boosters)
 	cfg.set_value("progress", "boosters_seen", boosters_seen)
 	cfg.set_value("progress", "quiver", quiver)
@@ -207,6 +211,10 @@ func load_game() -> void:
 		unlocked_level = clampi(maxi(unlocked_level, 101), 1, MAX_LEVELS)
 	power_charges = clampi(int(cfg.get_value("progress", "power_charges", 1)), 0, MAX_POWER)
 	coins = maxi(0, int(cfg.get_value("progress", "coins", START_COINS)))
+	var cv: Array = cfg.get_value("progress", "coin_videos", [-1, 0])
+	if cv.size() == 2:
+		_coin_video_day = int(cv[0])
+		_coin_videos = int(cv[1])
 	var saved_boosters: Dictionary = cfg.get_value("progress", "boosters", {})
 	for kind in boosters:
 		boosters[kind] = clampi(int(saved_boosters.get(kind, 0)), 0, MAX_BOOSTER)
@@ -268,10 +276,12 @@ func best_stars(level: int) -> int:
 ## skill nudges it.
 func base_difficulty(level: int) -> float:
 	if level > 100:
-		# Wavy chapter (101-110): starts easy again with the new long snakes, then medium,
-		# then hard (the spikes at 105 / 110 come on top) - a fresh sawtooth, not max-hard.
-		var k := (level - 101) % 10
-		return lerpf(0.3, 0.6, k / 9.0)
+		# Worlds 6-25 (101-500): every world is its own sawtooth - it starts easy-ish and
+		# climbs to hard by its last level (the 5th / 10th level spikes come on top). Each
+		# world starts and ends a little higher than the one before.
+		var k := (level - 101) % 20
+		var far := clampf((level - 101) / 400.0, 0.0, 1.0)
+		return lerpf(lerpf(0.28, 0.42, far), lerpf(0.62, 0.8, far), k / 19.0)
 	var t := clampf((level - 1) / 99.0, 0.0, 1.0)  # the ramp spans 1-100
 	return lerpf(0.06, 1.0, pow(t, 0.55))
 
@@ -552,6 +562,22 @@ func reset_all_data() -> void:
 # --- Days, streak and daily challenge -------------------------------------------------------
 
 ## Day number in the player's own time zone (for the streak).
+## Free-coin videos the player may still watch today (resets at local midnight).
+func coin_videos_left() -> int:
+	if _coin_video_day != local_day():
+		return COIN_VIDEOS_PER_DAY
+	return maxi(0, COIN_VIDEOS_PER_DAY - _coin_videos)
+
+
+## A free-coin video was watched to the end: count it for today.
+func count_coin_video() -> void:
+	if _coin_video_day != local_day():
+		_coin_video_day = local_day()
+		_coin_videos = 0
+	_coin_videos += 1
+	save_game()
+
+
 func local_day() -> int:
 	var bias := int(Time.get_time_zone_from_system().get("bias", 0))
 	return int(floor((Time.get_unix_time_from_system() + bias * 60.0) / 86400.0))
@@ -666,9 +692,8 @@ func set_music_pitch(pitch: float) -> void:
 static func music_pitch_for(level: int, daily: bool) -> float:
 	if daily:
 		return 1.06
-	if level > 100:
-		return 0.92
-	return [1.0, 0.97, 1.03, 0.95, 1.05][clampi((level - 1) / 20, 0, 4)]
+	const SHADES := [1.0, 0.97, 1.03, 0.95, 1.05, 0.92]
+	return SHADES[Worlds.of(level) % SHADES.size()]
 
 
 func _fade_music_in() -> void:

@@ -159,7 +159,7 @@ func _day_button(day: int, today: int) -> Button:
 	elif day < today:
 		# Missed day: open it with a short video.
 		b.text = str(number)
-		b.icon = load("res://icons/play_ad.svg") if not GameData.daily_unlocked.has(day) else null
+		b.icon = GameSkin.VIDEO_TEX if not GameData.daily_unlocked.has(day) else null
 		b.expand_icon = false
 		b.add_theme_constant_override("icon_max_width", 26)
 		box.bg_color = Color("#e2e8f0")

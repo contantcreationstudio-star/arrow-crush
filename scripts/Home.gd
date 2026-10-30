@@ -29,7 +29,7 @@ const WEEKDAYS := ["M", "T", "W", "T", "F", "S", "S"]
 const LEVELS_PER_WORLD := 20
 const WORLD_NAMES: Array[String] = ["Sunny Meadow", "Bubble Bay", "Arrowland", "Sunset Dunes", "Star Galaxy",
 	"Snake Jungle"]
-const RANKS: Array[Array] = [[0, "Rookie"], [30, "Sharpshooter"], [90, "Bullseye Pro"], [180, "Master Archer"], [270, "Legend"]]
+const RANKS: Array[Array] = [[0, "Rookie"], [30, "Sharpshooter"], [90, "Bullseye Pro"], [180, "Master Archer"], [270, "Legend"], [600, "Grandmaster"], [1000, "Arrow King"]]
 
 var _tab := -1
 var _page: Control
@@ -170,7 +170,7 @@ func _build_main(root: Control) -> void:
 	col.add_theme_constant_override("separation", 0)
 	_margin(root, 32, 24 + GameData.safe_insets().x, 32, _bottom_room() + 4).add_child(col)
 	var level := _current_level()
-	var world := clampi(floori((level - 1) / float(LEVELS_PER_WORLD)), 0, WORLD_NAMES.size() - 1)
+	var world := Worlds.of(level)
 
 	# Archie + level, then quiver and stars.
 	var top := HBoxContainer.new()
@@ -189,7 +189,7 @@ func _build_main(root: Control) -> void:
 	names.alignment = BoxContainer.ALIGNMENT_CENTER
 	names.add_theme_constant_override("separation", -4)
 	names.add_child(_hud_text("Level %d" % level, 28))
-	var world_name := _hud_text(WORLD_NAMES[world].to_upper(), 16)
+	var world_name := _hud_text(Worlds.name_of(world).to_upper(), 16)
 	world_name.add_theme_color_override("font_color", Color("#fde68a"))
 	names.add_child(world_name)
 	profile.add_child(names)
@@ -265,7 +265,7 @@ func _build_main(root: Control) -> void:
 	prog.add_child(pvb)
 	var ph2 := HBoxContainer.new()
 	pvb.add_child(ph2)
-	var wl := _label("World %d · %s" % [world + 1, WORLD_NAMES[world]], 26, Color.WHITE, 800)
+	var wl := _label("World %d · %s" % [world + 1, Worlds.name_of(world)], 26, Color.WHITE, 800)
 	wl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ph2.add_child(wl)
 	ph2.add_child(_label("%d/%d" % [cleared, world_size], 26, GOLD, 900))
@@ -651,19 +651,19 @@ func _update_hero() -> void:
 	if day < 0:
 		_hero_title.text = "Pick a day"
 		_hero_sub.text = "Tap a day in the calendar below"
-		_hero_button.text = "PLAY"
+		GameSkin.dress(_hero_button, "PLAY")
 		return
 	_hero_title.text = "Today" if day == today else GameData.day_label(day)
 	if GameData.daily_done.has(day):
 		var stars := clampi(int(GameData.daily_done[day]), 0, 3)
 		_hero_sub.text = "Won  " + "★".repeat(stars) + "☆".repeat(3 - stars) + ("\nNew maze in " + left if day == today else "")
-		_hero_button.text = "REPLAY"
+		GameSkin.dress(_hero_button, "REPLAY")
 	elif GameData.daily_available(day):
 		_hero_sub.text = "Ends in " + left if day == today else "Unlocked and ready"
-		_hero_button.text = "PLAY"
+		GameSkin.dress(_hero_button, "PLAY")
 	else:
 		_hero_sub.text = "Missed it? Watch a short video to play"
-		_hero_button.text = "▶  UNLOCK"
+		GameSkin.dress(_hero_button, "UNLOCK", GameSkin.VIDEO_TEX)
 
 
 func _on_daily_play() -> void:

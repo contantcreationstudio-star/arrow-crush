@@ -10,6 +10,8 @@ const VIOLET_DARK := Color("#4c1d95")
 const GOLD := Color("#fbbf24")
 const GOLD_LIP := Color("#b45309")
 const GOLD_TEXT := Color("#7c2d12")
+const VIDEO_TEX := preload("res://icons/fx/ic_video.png")   # rewarded video (drawn for the buttons)
+const COIN_TEX := preload("res://icons/fx/hud_coin.png")    # the HUD coin (Affinity art)
 
 
 static func apply(game: Node) -> void:
@@ -81,6 +83,107 @@ static func button_3d(b: Button, face: Color, lip: Color, ink: Color, font: Font
 		b.add_theme_color_override(s, ink)
 	b.add_theme_font_override("font", font)
 	add_gloss(b)
+
+
+## Lays out a chunky button's content as ONE centred group: [icon] Text [coin price pill].
+## Buttons draw an icon pinned to the left edge with the text centred on its own, which
+## looks loose; this replaces both with a row in the middle. `icon` may be the old
+## play_ad.svg / coin.svg (they are swapped for the drawn art). `price` >= 0 adds a dark
+## pill with a coin and the amount. Call it again to change the text (see text_of()).
+static func dress(b: Button, text: String, icon: Texture2D = null, price: int = -1) -> void:
+	if icon:
+		var path := icon.resource_path
+		if path.ends_with("play_ad.svg"):
+			icon = VIDEO_TEX
+		elif path.ends_with("coin.svg"):
+			icon = COIN_TEX
+	b.text = ""
+	b.icon = null
+	b.set_meta("dress_text", text)
+	var old := b.get_node_or_null("Content")
+	if old:
+		b.remove_child(old)
+		old.queue_free()
+	var font := b.get_theme_font("font")
+	var size := b.get_theme_font_size("font_size")
+	var ink := b.get_theme_color("font_color")
+	var h := b.custom_minimum_size.y if b.custom_minimum_size.y > 0.0 else 90.0
+	var row := HBoxContainer.new()
+	row.name = "Content"
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 14)
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 18
+	row.offset_right = -18
+	row.offset_bottom = -9  # sit on the face, above the lip
+	b.add_child(row)
+	if icon:
+		var ic := TextureRect.new()
+		ic.texture = icon
+		ic.custom_minimum_size = Vector2.ONE * roundf(h * 0.56)
+		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(ic)
+	if text != "":
+		var label := Label.new()
+		label.text = text
+		label.add_theme_font_override("font", font)
+		label.add_theme_font_size_override("font_size", size)
+		label.add_theme_color_override("font_color", ink)
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(label)
+	if price >= 0:
+		var pill := PanelContainer.new()
+		pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pill.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var pb := StyleBoxFlat.new()
+		pb.bg_color = Color(0.25, 0.08, 0.0, 0.16) if ink.get_luminance() < 0.5 else Color(0.0, 0.0, 0.0, 0.18)
+		pb.set_corner_radius_all(40)
+		pb.content_margin_left = 6
+		pb.content_margin_right = 16
+		pb.content_margin_top = 2
+		pb.content_margin_bottom = 2
+		pb.anti_aliasing = true
+		pill.add_theme_stylebox_override("panel", pb)
+		var pr := HBoxContainer.new()
+		pr.add_theme_constant_override("separation", 6)
+		pr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pill.add_child(pr)
+		var coin := TextureRect.new()
+		coin.texture = COIN_TEX
+		coin.custom_minimum_size = Vector2.ONE * roundf(h * 0.46)
+		coin.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		coin.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pr.add_child(coin)
+		var amount := Label.new()
+		amount.text = str(price)
+		amount.add_theme_font_override("font", font)
+		amount.add_theme_font_size_override("font_size", size)
+		amount.add_theme_color_override("font_color", ink)
+		amount.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		amount.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pr.add_child(amount)
+		row.add_child(pill)
+	# The face sinks when pressed (the lip squashes): the content goes down with it.
+	if not b.has_meta("dress_wired"):
+		b.set_meta("dress_wired", true)
+		b.button_down.connect(func() -> void:
+			var c := b.get_node_or_null("Content") as Control
+			if c: c.position.y += 5)
+		b.button_up.connect(func() -> void:
+			var c := b.get_node_or_null("Content") as Control
+			if c: c.position.y -= 5)
+
+
+## The text a dressed button shows (or its own text if it was never dressed).
+static func text_of(b: Button) -> String:
+	return str(b.get_meta("dress_text", b.text))
 
 
 ## UI kit v2: a soft white stripe across the top of a chunky button (one light source,

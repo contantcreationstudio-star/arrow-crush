@@ -59,10 +59,10 @@ const GOAL_TIPS := {
 ## The level each board piece first shows up (LevelGenerator.features_for): banner + tip.
 ## The first time a player meets a board piece (on whatever level): banner + tip.
 const FEATURE_INTROS := {
-	"balloons": ["POP THE BALLOONS!", "Pop all balloons! Clear arrows next to them or fly through them"],
-	"color": ["COLOUR ORDER!", "Clear the arrows of the colour shown in the goal card!"],
+	"balloons": ["POP THE BALLOONS!", "Pop all balloons too! Clear arrows next to them or fly through them"],
+	"color": ["COLOUR ORDER!", "Clear the arrows of the colour shown in the goal card too!"],
 	"crates": ["NEW: CRATES!", "Crates block the way. Shoot arrows into them or clear arrows beside them"],
-	"targets": ["NEW: TARGETS!", "Hit every target! Fly arrows out through the bullseyes"],
+	"targets": ["NEW: TARGETS!", "Hit every target too! Fly arrows out through the bullseyes"],
 	"ice": ["NEW: ICE SHIELD!", "Frozen arrows can't move. Shoot them or clear their neighbours to crack the ice"],
 	"mirrors": ["NEW: MIRRORS!", "Mirrors turn arrows 90 degrees - follow the lane!"],
 	"golden": ["GOLDEN ARROW!", "Fly the golden arrow out! Nothing can crush or blast it"],
@@ -72,7 +72,7 @@ const FEATURE_INTROS := {
 	"chain": ["CHAIN CRUSH!", "Same-colour arrows in a line? Tap the first one - the whole line crushes!"],
 	"prism": ["NEW: PRISM ARROW!", "Any colour crushes a prism - and the chain carries on in the prism's colour!"],
 	"wavy": ["SNAKE ARROWS!", "Long wavy arrows! Only the head decides where it flies - the body just follows"],
-	"creep": ["ARROWS ON THE MOVE!", "Clear an arrow and the ones pointing at the gap slide forward into it!"],
+	"creep": ["ARROWS ON THE MOVE!", "Arrows slide into gaps - and a same colour just ahead gets pulled in and CRUSHED!"],
 }
 const GOAL_DONE_COLOR := Color("#16a34a")
 const GOAL_INK := Color("#3b0764")      # numbers on the cream goal card
@@ -168,6 +168,9 @@ var _goal_ice := 0               # ice layers this level started with
 var _order_color := -1           # colour order: arrows of this colour to clear (-1 = none)
 var _order_count := 0
 var _goal_golden := 0            # golden arrows to fly out
+var _crush_goal := 0             # THE goal of the level: arrows to crush (0 = old "clear the board" rules)
+var _last_crushed := 0           # maze.crushed after the previous move (did that move crush anything?)
+var _crush_warned := false       # the "crush, don't fly out!" warning was shown this level
 var _goal_labels := {}           # goal card: "balloons" / "targets" / "arrows" -> Label
 var _costs_arrow := false        # losing / leaving this level costs a quiver arrow
 var _charged := false            # the arrow for this attempt was already taken
@@ -409,12 +412,16 @@ func _apply_kit_v2() -> void:
 	dock.shadow_offset = Vector2(0, 4)
 	dock.anti_aliasing = true
 	dock_bar.draw.connect(func() -> void:
-		var keys := dock_buttons()
+		# Only the keys on show: a hidden key keeps an old position and would pull the dock aside.
+		var keys := dock_buttons().filter(func(k: Control) -> bool: return k.visible)
 		if keys.is_empty():
 			return
-		var left := keys[0].position.x
-		var right := keys[-1].position.x + keys[-1].size.x
+		var left: float = keys[0].position.x
+		var right: float = keys[-1].position.x + keys[-1].size.x
 		dock_bar.draw_style_box(dock, Rect2(Vector2(left - 22, -12), Vector2(right - left + 44, dock_bar.size.y + 24))))
+	# Keys move whenever one is shown / hidden or the screen resizes: redraw the dock to follow.
+	dock_bar.sort_children.connect(dock_bar.queue_redraw)
+	dock_bar.resized.connect(dock_bar.queue_redraw)
 	dock_bar.queue_redraw()
 	# The top bar and the power dock sit above everything on the board, so an escaping
 	# arrow (ArrowPath.FLY_Z) flies off screen UNDER them, never over them.
@@ -592,8 +599,11 @@ func start_level(n: int) -> void:
 	var order: Dictionary = data.get("color_order", {})
 	_order_color = int(order.get("color", -1))
 	_order_count = int(order.get("count", 0))
+	_crush_goal = _crush_goal_for(data)
+	_crush_warned = false
 	if resuming:
 		_apply_resume(saved)
+	_last_crushed = maze.crushed
 	for l: Label in _goal_labels.values():
 		l.set_meta("shown", "")  # a new level: counts appear without the "changed" animation
 	_update_goals()
@@ -673,6 +683,8 @@ func _behind() -> bool:
 	if lives == 1:
 		return true
 	var cleared := 1.0 - float(maze.arrows.size()) / total_arrows
+	if _crush_goal > 0:
+		cleared = float(maze.crushed) / _crush_goal
 	var spent := 0.0
 	if _moves_start > 0:
 		spent = maxf(spent, 1.0 - float(moves_left) / _moves_start)
@@ -701,6 +713,12 @@ func _nudge_hint() -> void:
 
 ## "So close" line for the fail card when only a few arrows were left.
 func _near_miss(fallback: String) -> String:
+	if _crush_goal > 0:
+		var need := _crush_goal - maze.crushed
+		if need > 0:
+			if need <= 3:
+				return "So close - only %d more crush%s!" % [need, "" if need == 1 else "es"]
+			return fallback
 	var left := maze.arrows.size()
 	if left > 0 and left <= 3:
 		return "So close - only %d arrow%s left!" % [left, "" if left == 1 else "s"]
@@ -775,10 +793,14 @@ func _on_goal_piece(kind: String, pos: Vector2, delay: float, tex: Texture2D, co
 	if kind == "arrow":
 		if _order_color >= 0 and color == _order_color:
 			kind = "color"
-		elif _goal_sum().x == 0:
+		elif _arrows_chip_shown():
 			kind = "arrows"
 		else:
 			return
+	elif kind == "crush":
+		# The piece is sent right after the crush is counted: maze.crushed is its number.
+		if _crush_goal <= 0 or maze.crushed > _crush_goal:
+			return  # no crush goal, or it is already reached
 	if not _goal_labels.has(kind):
 		return
 	var label: Label = _goal_labels[kind]
@@ -1006,7 +1028,8 @@ func _write_resume(result: Array = []) -> void:
 		"undos_left": undos_left, "hints_left": hints_left, "streak": streak,
 		"taps": taps, "mistakes": mistakes, "hints_used": hints_used, "undos_used": undos_used,
 		"powers_used": powers_used, "seconds": (Time.get_ticks_msec() - started_msec) / 1000.0,
-		"goals": [_goal_balloons, _goal_targets, _goal_crates, _goal_ice, _goal_golden, _order_color, _order_count],
+		"goals": [_goal_balloons, _goal_targets, _goal_crates, _goal_ice, _goal_golden, _order_color, _order_count,
+			_crush_goal],
 		"total_arrows": total_arrows, "charged": _charged, "fail": _fail, "result": result,
 	}
 	var f := FileAccess.open(RESUME_PATH, FileAccess.WRITE)
@@ -1040,7 +1063,7 @@ func _apply_resume(saved: Dictionary) -> void:
 	powers_used = int(saved.get("powers_used", 0))
 	started_msec = Time.get_ticks_msec() - int(float(saved.get("seconds", 0.0)) * 1000.0)
 	var g: Array = saved.get("goals", [])
-	if g.size() == 7:
+	if g.size() >= 7:
 		_goal_balloons = int(g[0])
 		_goal_targets = int(g[1])
 		_goal_crates = int(g[2])
@@ -1048,6 +1071,8 @@ func _apply_resume(saved: Dictionary) -> void:
 		_goal_golden = int(g[4])
 		_order_color = int(g[5])
 		_order_count = int(g[6])
+		# A level saved before the crush goal existed keeps its old "clear the board" rules.
+		_crush_goal = int(g[7]) if g.size() >= 8 else 0
 	total_arrows = int(saved.get("total_arrows", total_arrows))
 	_charged = bool(saved.get("charged", false))
 	if has_moves:
@@ -1066,7 +1091,8 @@ func _apply_resume(saved: Dictionary) -> void:
 		maze.input_enabled = false
 		(func() -> void:
 			_show_result(str(result[0]), str(result[1]), false)
-			continue_button.text = str(result[2])
+			GameSkin.dress(continue_button, str(result[2]).replace("(watch video)", "").strip_edges(),
+				GameSkin.VIDEO_TEX)
 			continue_button.visible = bool(result[3])).call_deferred()
 	elif has_clock:
 		_show_pause.call_deferred()  # a clock level never starts ticking before they're ready
@@ -1107,6 +1133,9 @@ func _on_moved(removed: int) -> void:
 	if _goals_done():
 		_win_with_move()
 		return
+	if _crush_short():
+		return
+	_crush_coaching()
 	_spend_move()
 
 
@@ -1126,7 +1155,70 @@ func _on_power_blast(smashed: int) -> void:
 	if _goals_done():
 		_win_with_move()
 		return
+	if _crush_short():
+		return
+	_last_crushed = maze.crushed
 	_spend_move()
+
+
+## Crush goal: too few arrows are left to ever reach it - end the level now instead of
+## letting the player tap on for nothing. Returns true if the level was lost.
+func _crush_short() -> bool:
+	if _crush_goal <= 0 or _is_tutorial_level or not playing:
+		return false
+	if maze.crushed + maze.arrows.size() >= _crush_goal:
+		return false
+	_fail = "goals"
+	playing = false
+	maze.input_enabled = false
+	GameData.play_sfx("lose")
+	GameData.vibrate(60)
+	_record_result(false)
+	_show_result("Missed!", _crush_miss_text() + _charge_arrow(), false)
+	continue_button.visible = false
+	return true
+
+
+func _crush_miss_text() -> String:
+	return "You crushed %d of %d arrows.\nCrush same colours - flying out doesn't count!" \
+		% [mini(maze.crushed, _crush_goal), _crush_goal]
+
+
+## Teaches the crush goal while the player plays: the first time an arrow just flies out,
+## and once when the crush goal is getting tight.
+func _crush_coaching() -> void:
+	var gained := maze.crushed - _last_crushed
+	_last_crushed = maze.crushed
+	if _crush_goal <= 0 or _is_tutorial_level:
+		return
+	var left := _crush_goal - maze.crushed
+	var spare := maze.arrows.size() - left  # arrows that may still fly out
+	if gained == 0 and not GameData.seen_features.has("flyout_tip"):
+		GameData.seen_features["flyout_tip"] = true
+		GameData.save_game()
+		tip_label.text = "Flying out doesn't add to the crush count - CRUSH same colours!"
+		tip_label.add_theme_color_override("font_color", GOAL_DONE_COLOR)
+		tip_label.visible = true
+		_pulse_crush_chip()
+	elif gained == 0 and left > 0 and spare <= 3 and not _crush_warned:
+		_crush_warned = true
+		mascot.react("worried")
+		_show_banner("CRUSH, DON'T FLY!", Color("#e11d48"))
+		_pulse_crush_chip()
+
+
+## A little bounce on the crush chip so the eye goes to the goal.
+func _pulse_crush_chip() -> void:
+	if not _goal_labels.has("crush"):
+		return
+	var chip := (_goal_labels["crush"] as Label).get_parent() as Control
+	if not chip.visible:
+		return
+	chip.pivot_offset = chip.size / 2.0
+	var t := chip.create_tween()
+	for i in 3:
+		t.tween_property(chip, "scale", Vector2.ONE * 1.3, 0.12).set_trans(Tween.TRANS_SINE)
+		t.tween_property(chip, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_SINE)
 
 
 func _on_arrow_blocked(_arrow: ArrowPath) -> void:
@@ -1158,7 +1250,7 @@ func _on_arrow_blocked(_arrow: ArrowPath) -> void:
 		GameData.play_sfx("lose")
 		_record_result(false)
 		_show_result("Out of Hearts", _near_miss("That arrow was blocked!") + "\nThe retry will be a little gentler." + _charge_arrow(), false)
-		continue_button.text = "  +1 Heart (watch video)"
+		GameSkin.dress(continue_button, "+1 Heart", GameSkin.VIDEO_TEX)
 
 
 ## Every arrow is gone. Normally that's the win; on a goal level with targets still
@@ -1176,6 +1268,8 @@ func _on_maze_cleared() -> void:
 		var left := maze.targets_left()
 		var why := "All arrows are gone but %d target%s never got hit.\nAim arrows out through the bullseyes!" \
 			% [left, "" if left == 1 else "s"] if left > 0 else "All arrows are gone but the goals aren't finished."
+		if _crush_goal > 0 and maze.crushed < _crush_goal:
+			why = _crush_miss_text()
 		_show_result("Missed!", why + _charge_arrow(), false)
 		continue_button.visible = false
 		return
@@ -1340,7 +1434,7 @@ func _enter_level(tr: LevelTransition, n: int, first: bool = false) -> void:
 		if _daily < 0 and _held_tier >= LevelGenerator.Tier.HARD:
 			stamp = "HARD LEVEL" if _held_tier == LevelGenerator.Tier.HARD else "SUPER HARD"
 		var color: Color = RIBBON_COLORS[clampi(_held_tier, 0, 3)][0]
-		await tr.show_title(level_label.text, stamp, color, _briefing_sentence(_briefing_goals()))
+		await tr.show_title(level_label.text, stamp, color, _briefing_sentence(_briefing_goals(), false))
 	await tr.open()
 	_intro_hold = false
 	if _briefing:
@@ -1389,6 +1483,7 @@ func _on_undo() -> void:
 	var entry := maze.undo()
 	if entry.is_empty():
 		return
+	_last_crushed = maze.crushed
 	undos_left -= 1
 	undos_used += 1
 	if has_moves:
@@ -1558,8 +1653,6 @@ func _continue() -> void:
 func _build_coin_continue() -> void:
 	_coin_continue = Button.new()
 	_coin_continue.custom_minimum_size = Vector2(0, 92)
-	_coin_continue.icon = load("res://icons/coin.svg")
-	_coin_continue.add_theme_constant_override("icon_max_width", 40)
 	_coin_continue.add_theme_font_size_override("font_size", 30)
 	_coin_continue.focus_mode = Control.FOCUS_NONE
 	var heavy := SystemFont.new()
@@ -1576,7 +1669,7 @@ func _build_coin_continue() -> void:
 
 func _update_coin_continue() -> void:
 	_coin_continue.visible = continue_button.visible
-	_coin_continue.text = "  Keep playing  %d" % GameData.CONTINUE_COINS
+	GameSkin.dress(_coin_continue, "Keep playing", null, GameData.CONTINUE_COINS)
 	_coin_continue.modulate.a = 1.0 if GameData.coins >= GameData.CONTINUE_COINS else 0.5
 
 
@@ -1686,12 +1779,50 @@ func _goal_sum() -> Vector2i:
 
 
 func _goals_done() -> bool:
-	if _is_tutorial_level and _tutorial != null:
-		# The level-1 lessons run to the end before the level can be won.
+	if _is_tutorial_level:
+		# Level 1 is played to the end: the lessons run, then the player clears the board.
 		return maze.arrows.is_empty()
+	if _crush_goal > 0:
+		# Clear the board, crushing at least _crush_goal arrows on the way; balloons,
+		# targets, crates... on the board must be done too. (Ending as soon as the crush
+		# count was reached made levels far too short: chains reach it in a few taps.)
+		return maze.arrows.is_empty() and maze.crushed >= _crush_goal and _goal_sum().y == 0
 	if _goal_sum().x == 0:
 		return maze.arrows.is_empty()
 	return _goal_sum().y == 0
+
+
+## The "arrows left" chip: on plain levels it is the goal; on crush levels it shows the
+## board still to clear - only when the card has room for it. The goal card holds at
+## most three chips: more makes the whole header wider than the phone (the board then
+## spreads off screen too).
+func _arrows_chip_shown() -> bool:
+	if _crush_goal <= 0:
+		return _goal_sum().x == 0
+	var chips := 1  # the crush chip
+	for pair: Array in _goal_counts().values():
+		if int(pair[0]) > 0:
+			chips += 1
+	if has_moves and has_clock:
+		chips += 1  # the stopwatch chip
+	return chips <= 2
+
+
+## Arrows to crush to win this level: a share of what a careful player can crush (see
+## LevelGenerator.estimate_crushes), lower for a player who is stuck here (help only).
+## 0 = too few crushes on this board: the old "clear every arrow" rule applies.
+func _crush_goal_for(data: Dictionary) -> int:
+	if _is_tutorial_level:
+		return 2  # the one crush pair the lesson shows
+	var most := int(data.get("crush_max", -1))
+	if most < 0:  # a board made before the crush goal existed
+		most = LevelGenerator.estimate_crushes(data.arrows, data.colors, data.cols, data.rows,
+			data.get("mirrors", {}), data.get("prisms", []))
+	var share := 0.65
+	if _daily < 0 and GameData.needs_help(level):
+		share = 0.5
+	var n := floori(most * share)
+	return n if n >= 2 else 0
 
 
 ## The first time the player meets a board piece: a tip under the board (the goal card
@@ -1733,7 +1864,7 @@ func _on_goals_changed() -> void:
 ## The goal card under the bow meter: a chip per goal, counting down - balloons and
 ## targets on goal levels, otherwise the arrows still to clear.
 func _build_goal_row() -> void:
-	for kind in ["golden", "balloons", "targets", "crates", "ice", "color", "arrows"]:
+	for kind in ["crush", "golden", "balloons", "targets", "crates", "ice", "color", "arrows"]:
 		# Icon with its count beside it (centred, big, dark ink on the cream card); when the
 		# goal is done the count gives way to a green tick on the icon.
 		var chip := HBoxContainer.new()
@@ -1741,12 +1872,14 @@ func _build_goal_row() -> void:
 		chip.alignment = BoxContainer.ALIGNMENT_CENTER
 		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var icon := TextureRect.new()
-		icon.texture = load({"balloons": "res://icons/fx/goal_balloon_0.png", "targets": "res://icons/fx/goal_target.png",
+		icon.texture = load({"crush": "res://icons/fx/goal_crush.png",
+			"balloons": "res://icons/fx/goal_balloon_0.png", "targets": "res://icons/fx/goal_target.png",
 			"crates": "res://icons/fx/goal_crate_1.png", "ice": "res://icons/fx/goal_ice_2.png", "color": "res://icons/arrow_white.svg",
 			"golden": "res://icons/fx/goal_golden.png",
 			"arrows": "res://icons/arrow_white.svg"}[kind])
 		icon.name = "Icon"
-		icon.custom_minimum_size = Vector2(48, 48)
+		# The crush goal is the main goal: its chip is a little bigger than the board pieces.
+		icon.custom_minimum_size = Vector2(60, 60) if kind == "crush" else Vector2(48, 48)
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -1786,7 +1919,9 @@ func _build_goal_row() -> void:
 
 func _update_goals() -> void:
 	var counts := _goal_counts()
-	counts["arrows"] = [0 if _goal_sum().x > 0 else total_arrows, maze.arrows.size()]
+	counts["arrows"] = [total_arrows if _arrows_chip_shown() else 0, maze.arrows.size()]
+	counts["crush"] = [_crush_goal, maxi(0, _crush_goal - maze.crushed)]
+	_fit_goal_card(counts)
 	if _order_color >= 0:
 		(_goal_labels["color"].get_parent().get_node("Icon") as CanvasItem).modulate = 			ArrowPath.ARROW_COLORS[_order_color % ArrowPath.ARROW_COLORS.size()]
 	for kind: String in counts:
@@ -1817,6 +1952,25 @@ func _update_goals() -> void:
 			var c := chip.create_tween()
 			c.tween_property(chip, "scale", Vector2.ONE * 1.3, 0.08)
 			c.tween_property(chip, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## Keeps the goal card inside the phone: with four or more chips the "GOAL" tag hides
+## and every chip gets smaller (a wider card would push the whole header - and the
+## board fitted under it - off the screen).
+func _fit_goal_card(counts: Dictionary) -> void:
+	var chips := 1 if _timer_chip and _timer_chip.visible else 0
+	for kind: String in counts:
+		if int(counts[kind][0]) > 0:
+			chips += 1
+	var tight := chips >= 4
+	goal_row.get_child(0).visible = not tight  # the GOAL tag
+	goal_row.add_theme_constant_override("separation", 6 if tight else 12)
+	for kind: String in _goal_labels:
+		var label: Label = _goal_labels[kind]
+		label.add_theme_font_size_override("font_size", 26 if tight else 34)
+		var icon := label.get_parent().get_node("Icon") as Control
+		var big := 60.0 if kind == "crush" else 48.0
+		icon.custom_minimum_size = Vector2.ONE * (38.0 if tight else big)
 
 
 ## A goal count changed: the old number floats up and fades, the new one pops in with an
@@ -2392,13 +2546,25 @@ func _briefing_goals() -> Array:
 		if kind == "color":
 			tint = ArrowPath.ARROW_COLORS[_order_color % ArrowPath.ARROW_COLORS.size()]
 		out.append([kind, icons[kind], total, tint])
-	if out.is_empty():
+	if _crush_goal > 0:
+		out.push_front(["crush", "res://icons/fx/goal_crush.png", _crush_goal, Color.WHITE])
+	elif out.is_empty():
 		out.append(["arrows", "res://icons/arrow_white.svg", total_arrows, GameSkin.VIOLET])
 	return out
 
 
 ## "Pop 3 balloons and break the crates!" - the goals in one plain sentence.
-func _briefing_sentence(goals: Array) -> String:
+## On a crush level: "Crush 12 arrows!" and, on a line of its own, the bonus pieces.
+func _briefing_sentence(goals: Array, with_bonus: bool = true) -> String:
+	if not goals.is_empty() and goals[0][0] == "crush":
+		var n := int(goals[0][2])
+		var main := "Clear the board - crush %d on the way!" % n
+		if not with_bonus:
+			return "Crush %d & clear the board" % n
+		if goals.size() == 1:
+			return main + "\nSame colours crush - flying out doesn't add to it."
+		var rest := _briefing_sentence(goals.slice(1))
+		return main + "\nAnd " + rest.substr(0, 1).to_lower() + rest.substr(1)
 	var parts: Array[String] = []
 	for g: Array in goals:
 		var n: int = g[2]
@@ -2418,16 +2584,16 @@ func _briefing_sentence(goals: Array) -> String:
 
 ## Adds a chunky 3D button to a small popup's column.
 func _popup_button(col: VBoxContainer, text: String, icon_path: String, face: Color, lip: Color, ink: Color,
-		font: Font, height: float = 100.0) -> Button:
+		font: Font, height: float = 100.0, price: int = -1) -> Button:
 	var b := Button.new()
 	b.text = text
-	if icon_path != "":
-		b.icon = load(icon_path)
-		b.add_theme_constant_override("icon_max_width", 40)
 	b.custom_minimum_size = Vector2(0, height)
 	b.focus_mode = Control.FOCUS_NONE
 	b.add_theme_font_size_override("font_size", 32)
 	GameSkin.button_3d(b, face, lip, ink, font)
+	if icon_path != "" or price >= 0:
+		# Icon, text and price as one centred group (see GameSkin.dress).
+		GameSkin.dress(b, text.strip_edges(), load(icon_path) if icon_path != "" else null, price)
 	col.add_child(b)
 	return b
 
@@ -2436,7 +2602,7 @@ func _popup_button(col: VBoxContainer, text: String, icon_path: String, face: Co
 func _offer_ad(title: String, message: String, reward: String, on_reward: Callable) -> void:
 	var pop := _small_popup("", title, message)
 	var close: Callable = pop.close
-	var watch := _popup_button(pop.col, "  Watch video", "res://icons/play_ad.svg", Color("#22c55e"), Color("#15803d"), Color.WHITE, pop.font)
+	var watch := _popup_button(pop.col, "Watch video", "res://icons/play_ad.svg", Color("#22c55e"), Color("#15803d"), Color.WHITE, pop.font)
 	var no := _popup_button(pop.col, "No thanks", "", Color("#ede9fe"), GameSkin.CARD_LIP, GameSkin.VIOLET, pop.font, 84.0)
 	no.pressed.connect(close)
 	watch.pressed.connect(func() -> void:
@@ -2648,11 +2814,17 @@ func _offer_booster(kind: String) -> void:
 	var pop := _small_popup(icon, GameData.BOOSTER_NAMES[kind], GameData.BOOSTER_INFO[kind])
 	var close: Callable = pop.close
 	var price := int(GameData.PRICES[kind])
-	var watch := _popup_button(pop.col, "  Watch video  +1 free", "res://icons/play_ad.svg",
+	var watch := _popup_button(pop.col, "+1 Free", "res://icons/play_ad.svg",
 		Color("#22c55e"), Color("#15803d"), Color.WHITE, pop.font)
-	var buy := _popup_button(pop.col, "  Buy for %d   (you have %d)" % [price, GameData.coins], "res://icons/coin.svg",
-		GameSkin.GOLD, GameSkin.GOLD_LIP, GameSkin.GOLD_TEXT, pop.font, 92.0)
-	buy.add_theme_font_size_override("font_size", 28)
+	var buy := _popup_button(pop.col, "Buy", "", GameSkin.GOLD, GameSkin.GOLD_LIP, GameSkin.GOLD_TEXT, pop.font, 92.0, price)
+	var have := Label.new()
+	have.text = "You have %d coins" % GameData.coins
+	have.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	have.add_theme_font_override("font", pop.font)
+	have.add_theme_font_size_override("font_size", 22)
+	have.add_theme_color_override("font_color", Color("#92400e"))
+	pop.col.add_child(have)
+	pop.col.move_child(have, buy.get_index() + 1)
 	if GameData.coins < price:
 		buy.modulate.a = 0.5
 	var no := _popup_button(pop.col, "No thanks", "", Color("#ede9fe"), GameSkin.CARD_LIP, GameSkin.VIOLET, pop.font, 84.0)
@@ -2881,7 +3053,7 @@ func _spend_move() -> void:
 	GameData.vibrate(60)
 	_record_result(false)
 	_show_result("Out of Moves!", _near_miss("So close!") + "\nOne crush clears 2 arrows with 1 move." + _charge_arrow(), false)
-	continue_button.text = "  +%d Moves (watch video)" % AD_MOVES
+	GameSkin.dress(continue_button, "+%d Moves" % AD_MOVES, GameSkin.VIDEO_TEX)
 
 
 func _process(delta: float) -> void:
@@ -2953,7 +3125,7 @@ func _time_up() -> void:
 	GameData.vibrate(60)
 	_record_result(false)
 	_show_result("Time's Up!", _near_miss("So close!") + "\nEvery arrow out adds time - crushes add more." + _charge_arrow(), false)
-	continue_button.text = "  +%d Seconds (watch video)" % AD_SECONDS
+	GameSkin.dress(continue_button, "+%d Seconds" % AD_SECONDS, GameSkin.VIDEO_TEX)
 
 
 ## The header ribbon behind the level name takes the difficulty colour.
@@ -3172,7 +3344,7 @@ func _show_result(title: String, message: String, won: bool) -> void:
 		star.modulate = Color.WHITE
 		star.scale = Vector2.ONE
 	if not won:
-		(func() -> void: _write_resume([title, message, continue_button.text, continue_button.visible])).call_deferred()
+		(func() -> void: _write_resume([title, message, GameSkin.text_of(continue_button), continue_button.visible])).call_deferred()
 	result_popup.show()
 	result_popup.modulate.a = 0.0
 	result_panel.scale = Vector2.ONE * 0.7

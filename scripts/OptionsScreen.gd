@@ -175,8 +175,8 @@ func _page_settings() -> void:
 ## Rules, helpers and rewards, one card per topic.
 func _page_help() -> void:
 	_title.text = "How to Play"
-	_text_card("[b]The goal[/b]\nClear every arrow from the board. Tap an arrow and it flies off in the direction it points - but only if nothing blocks its way.")
-	_text_card("[b]Crush![/b]\nIf the first arrow in the way has the [b]same colour[/b], both get crushed - no heart lost. A [b]different colour[/b] means a bump and you lose a heart.\n\nA crushed arrow passes the hit on to the next same-colour arrow in its path. Line them up for big domino chains!")
+	_text_card("[b]The goal: CRUSH![/b]\nClear every arrow from the board - and crush at least the number shown by the burst in the goal card on the way. Tap an arrow and it flies off the way it points. If the first arrow in its way has the [b]same colour[/b], both get [b]crushed[/b]. Balloons, targets and other pieces in the goal card must be done too.\n\nFlying out is fine for making room, but only crushes add to the crush count.")
+	_text_card("[b]Crush chains[/b]\nA [b]different colour[/b] in the way means a bump and you lose a heart.\n\nA crushed arrow passes the hit on to the next same-colour arrow in its path - line them up for big domino chains! And when arrows slide into a gap, a same colour just ahead gets pulled in and crushed too ([b]MAGNET![/b]).")
 	_text_card("[b]Special arrows[/b]\nClear several arrows with one tap to earn a special arrow:\n"
 		+ "• 3 arrows - [b]Drill[/b]: smashes through its whole path\n"
 		+ "• 4 arrows - [b]Bomb[/b]: blows up a 3×3 area\n"
@@ -214,7 +214,7 @@ func _page_about() -> void:
 	_content.add_child(head)
 	_text_card("Plan your taps, crush same-colour arrows and set off huge chain reactions. Arrow Crush is a calm-but-crunchy puzzle that starts easy and grows into real brain-burners.")
 	_text_card("[b]What's inside[/b]\n"
-		+ "• 110 levels across 6 worlds, with wavy snake arrows and prism chains\n"
+		+ "• 500 levels across 25 worlds, with wavy snake arrows and prism chains\n"
 		+ "• Drill, Bomb, Laser and Rainbow special arrows\n"
 		+ "• A new Daily Challenge every day, with streak rewards\n"
 		+ "• Difficulty that adapts to how you play\n"
@@ -244,6 +244,15 @@ func _page_licenses() -> void:
 		+ "Arrow Crush by its developer with licensed AI audio tools (commercial-use subscription).")
 	_text_card("[b]Sound effects[/b]\nImpact Sounds and Interface Sounds by Kenney (www.kenney.nl), "
 		+ "released under Creative Commons Zero (CC0 1.0) - public domain. Thank you, Kenney!")
+	_text_card("[b]Picture shapes[/b]\nThe level pictures (animals, flowers, home things...) are "
+		+ "silhouettes made from these icon sets:\n"
+		+ "• Material Design Icons (Pictogrammers) - Apache License 2.0\n"
+		+ "• Material Symbols (Google) - Apache License 2.0\n"
+		+ "• Phosphor Icons (Phosphor Icons) - MIT License\n"
+		+ "• Font Awesome Free (Fonticons, Inc.) - CC BY 4.0, https://fontawesome.com/license/free\n"
+		+ "• IconPark (ByteDance) - Apache License 2.0\n"
+		+ "• Fluent Emoji (Microsoft) - MIT License\n"
+		+ "The shapes were simplified to solid outlines for the game.")
 	_text_card("[b]AdMob plugin[/b]\nGodot AdMob plugin by Poing Studios, used under the MIT License:\n\n"
 		+ _licence_file("res://addons/admob/LICENSE")
 		+ "\n\nAds are served by the Google Mobile Ads SDK, under Google's own terms.")

@@ -31,6 +31,12 @@ signal ad_finished
 const REWARDED_UNIT_ID := "ca-app-pub-3940256099942544/5224354917"
 const INTERSTITIAL_UNIT_ID := "ca-app-pub-3940256099942544/1033173712"
 
+## Master switch for interstitials (the ads between levels). OFF for the first release:
+## a new AdMob account with only friends and testers playing risks "invalid traffic", and
+## early reviews matter most. Rewarded videos (always the player's choice) stay on.
+## Turn this to true in an update after ~1000 downloads with good reviews.
+const INTERSTITIALS_ENABLED := false
+
 # Light interstitials. The limits are by time and per day, not by level number, so they
 # stay the same however many levels the game grows to.
 const INTERSTITIAL_EVERY := 5       # levels between interstitials
@@ -141,6 +147,9 @@ func show_rewarded(reward_label: String, on_reward: Callable) -> void:
 ## Call after each won level; shows an interstitial every few levels (never after a loss,
 ## never within INTERSTITIAL_GAP_SEC of another ad), then `then`.
 func level_finished(level: int, then: Callable) -> void:
+	if not INTERSTITIALS_ENABLED:
+		then.call()
+		return
 	_levels_since_interstitial += 1
 	var since_last := (Time.get_ticks_msec() - _last_ad_msec) / 1000.0
 	if level < INTERSTITIAL_FROM_LEVEL or _levels_since_interstitial < INTERSTITIAL_EVERY or _showing \
@@ -244,6 +253,8 @@ func _load_rewarded() -> void:
 
 
 func _load_interstitial() -> void:
+	if not INTERSTITIALS_ENABLED:
+		return  # never even requested: no impressions, no traffic while they are off
 	if not _ready_for_ads or _loading_interstitial or _interstitial_ad != null:
 		return
 	_loading_interstitial = true

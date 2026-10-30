@@ -51,6 +51,13 @@ const SP_ORB := preload("res://icons/fx/sp_orb.png")
 const FX_FLARE := preload("res://icons/fx/fx_flare.png")
 const BADGE := 1.25         # badge size on the body, in cells
 const CURVE := 0.5          # radius of the rounded bends, in cells (0.5 = a zigzag becomes a smooth wave)
+## Chunky look (2026-10-30): a thicker tube and a bigger, bolder head, so arrows read as
+## arrows even on big boards. All sizes are shares of one cell.
+const BODY := 0.33          # coloured tube
+const RIM := 0.08           # dark outline added around the tube
+const HEAD_TIP := 0.42      # how far the tip sits in front of the head cell's centre
+const HEAD_BACK := 0.17     # how far back the barbs sweep
+const HEAD_HALF := 0.38     # half the head's width (barb to barb)
 const ARC_STEPS := 8        # line segments per rounded bend
 
 var cells: Array[Vector2i] = []   # grid cells, tail first, head last
@@ -183,9 +190,9 @@ func setup(p_cells: Array[Vector2i], p_cell_size: float, cols: int, rows: int,
 		add_child(l)
 	var s := cell_size
 	# UI kit v2: a chunkier tube with a darker rim and a violet-tinted drop shadow.
-	_glow.width = s * 0.55
-	_line.width = s * 0.25
-	_outline.width = _line.width + s * 0.07
+	_glow.width = s * 0.62
+	_line.width = s * BODY
+	_outline.width = _line.width + s * RIM
 	_shadow.width = _outline.width + s * 0.02
 	_shadow.default_color = Color(0.16, 0.08, 0.43, 0.22)
 	_shadow.position = Vector2(s * 0.035, s * 0.08)
@@ -217,14 +224,14 @@ func setup(p_cells: Array[Vector2i], p_cell_size: float, cols: int, rows: int,
 	add_child(_decor)
 
 	# Notched arrowhead (UI kit v2): tip, two swept-back barbs and a notch at the back.
-	var tip := Vector2(s * 0.34, 0)
-	var barb_l := Vector2(-s * 0.13, -s * 0.3)
-	var barb_r := Vector2(-s * 0.13, s * 0.3)
-	var notch := Vector2(-s * 0.035, 0)
-	var head_shape := _rounded_polygon([tip, barb_l, notch, barb_r], s * 0.035)
+	var tip := Vector2(s * HEAD_TIP, 0)
+	var barb_l := Vector2(-s * HEAD_BACK, -s * HEAD_HALF)
+	var barb_r := Vector2(-s * HEAD_BACK, s * HEAD_HALF)
+	var notch := Vector2(-s * 0.05, 0)
+	var head_shape := _rounded_polygon([tip, barb_l, notch, barb_r], s * 0.045)
 	_head.polygon = head_shape
 	_head.antialiased = true
-	var rim_shape: PackedVector2Array = Geometry2D.offset_polygon(head_shape, s * 0.04, Geometry2D.JOIN_ROUND)[0]
+	var rim_shape: PackedVector2Array = Geometry2D.offset_polygon(head_shape, s * RIM * 0.5, Geometry2D.JOIN_ROUND)[0]
 	_head_rim.polygon = rim_shape
 	_head_rim.antialiased = true
 	_head_rim.show_behind_parent = true

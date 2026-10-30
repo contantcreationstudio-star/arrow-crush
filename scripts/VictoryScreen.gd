@@ -482,7 +482,7 @@ func _land_star(star: TextureRect, i: int) -> void:
 
 
 func _show_rewards(row: HBoxContainer, info: Dictionary) -> void:
-	var items: Array = [["res://icons/coin.svg", int(info.get("coins", 0)), Color("#fef3c7"), Color("#92400e")]]
+	var items: Array = [["res://icons/fx/hud_coin.png", int(info.get("coins", 0)), Color("#fef3c7"), Color("#92400e")]]
 	if int(info.get("hints", 0)) > 0:
 		items.append(["res://icons/hint.svg", int(info.hints), Color("#ecfccb"), Color("#3f6212")])
 	if int(info.get("power", 0)) > 0:

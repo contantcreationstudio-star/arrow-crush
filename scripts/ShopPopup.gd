@@ -81,7 +81,7 @@ func _build(focus: String) -> void:
 	var ch := HBoxContainer.new()
 	ch.add_theme_constant_override("separation", 6)
 	chip.add_child(ch)
-	ch.add_child(_icon("res://icons/coin.svg", 46))
+	ch.add_child(_icon("res://icons/fx/hud_coin.png", 50))
 	_coin_label = _label("", 34, Color("#92400e"))
 	ch.add_child(_coin_label)
 	head.add_child(chip)
@@ -96,22 +96,40 @@ func _build(focus: String) -> void:
 
 	col.add_child(_gap(4))
 	var watch := Button.new()
-	watch.text = "  Watch video  +%d coins" % GameData.AD_COINS
-	watch.icon = load("res://icons/play_ad.svg")
-	watch.add_theme_constant_override("icon_max_width", 40)
 	watch.custom_minimum_size = Vector2(0, 96)
 	watch.focus_mode = Control.FOCUS_NONE
 	watch.add_theme_font_size_override("font_size", 32)
 	GameSkin.button_3d(watch, Color("#22c55e"), Color("#15803d"), Color.WHITE, _font)
+	# Free coins: a few videos a day (GameData.COIN_VIDEOS_PER_DAY), counted under the button.
+	var left_label := _label("", 20, MUTED, 700)
+	left_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var show_left := func() -> void:
+		var left := GameData.coin_videos_left()
+		if left > 0:
+			GameSkin.dress(watch, "Free coins", GameSkin.VIDEO_TEX, GameData.AD_COINS)
+			left_label.text = "%d of %d free videos left today" % [left, GameData.COIN_VIDEOS_PER_DAY]
+			watch.modulate.a = 1.0
+		else:
+			GameSkin.dress(watch, "Back tomorrow")
+			left_label.text = "New free coin videos at midnight"
+			watch.modulate.a = 0.55
+	show_left.call()
 	watch.pressed.connect(func() -> void:
+		if GameData.coin_videos_left() <= 0:
+			GameData.play_sfx("thud")
+			_bump(watch)
+			return
 		AdManager.show_rewarded("+%d coins" % GameData.AD_COINS, func() -> void:
+			GameData.count_coin_video()
 			GameData.add_coins(GameData.AD_COINS)
 			GameData.play_sfx("charge")
 			_note.text = "+%d coins!" % GameData.AD_COINS
 			_note.add_theme_color_override("font_color", Color("#15803d"))
 			_bump(_coin_chip)
+			show_left.call()
 			_refresh()))
 	col.add_child(watch)
+	col.add_child(left_label)
 	var close := Button.new()
 	close.text = "Close"
 	close.custom_minimum_size = Vector2(0, 84)
@@ -172,18 +190,16 @@ func _row(kind: String, highlight: bool) -> Control:
 	h.add_child(count)
 	_counts[kind] = count
 	var buy := Button.new()
-	buy.text = str(GameData.PRICES[kind])
-	buy.icon = load("res://icons/coin.svg")
-	buy.add_theme_constant_override("icon_max_width", 34)
 	buy.custom_minimum_size = Vector2(148, 78)
 	buy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	buy.focus_mode = Control.FOCUS_NONE
 	buy.add_theme_font_size_override("font_size", 30)
 	GameSkin.button_3d(buy, Color("#fbbf24"), Color("#b45309"), Color("#7c2d12"), _font)
+	# Coin and price centred together on the gold key.
+	GameSkin.dress(buy, str(GameData.PRICES[kind]), GameSkin.COIN_TEX)
 	buy.pressed.connect(_buy.bind(kind, row))
 	if not GameData.booster_unlocked(kind):
-		buy.text = "Lv %d" % int(GameData.BOOSTER_UNLOCK[kind])
-		buy.icon = null
+		GameSkin.dress(buy, "Lv %d" % int(GameData.BOOSTER_UNLOCK[kind]))
 		count.text = ""
 	h.add_child(buy)
 	_buys[kind] = buy
@@ -201,7 +217,8 @@ func _buy(kind: String, row: Control) -> void:
 	if GameData.coins < price:
 		GameData.play_sfx("thud")
 		GameData.vibrate(30)
-		_note.text = "Not enough coins - watch a video for +%d!" % GameData.AD_COINS
+		_note.text = "Not enough coins - watch a video for +%d!" % GameData.AD_COINS \
+			if GameData.coin_videos_left() > 0 else "Not enough coins - win levels to earn more!"
 		_note.add_theme_color_override("font_color", CORAL)
 		_shake(_coin_chip)
 		return

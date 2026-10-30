@@ -1,0 +1,17 @@
+Arrow Crush - picture shapes (data/pictures.txt)
+
+The level pictures are solid silhouettes made by tools/build_pictures.gd from these
+open-licence icon sets (downloaded from https://cdn.jsdelivr.net/npm/@iconify-json/<set>/icons.json):
+
+- mdi               Material Design Icons, Pictogrammers      Apache License 2.0
+- material-symbols  Material Symbols, Google                  Apache License 2.0
+- ph                Phosphor Icons                            MIT License
+- fa6-solid         Font Awesome Free 6, Fonticons, Inc.      CC BY 4.0 (https://fontawesome.com/license/free)
+- icon-park-solid   IconPark, ByteDance                       Apache License 2.0
+- fluent-emoji-flat Fluent Emoji, Microsoft                   MIT License
+
+Each icon was rasterised, its inner details closed and filled (a solid outline), and
+scaled down to a small bit mask. Credits are shown in the game under Options > Licences.
+Apache 2.0: https://www.apache.org/licenses/LICENSE-2.0
+MIT: https://opensource.org/licenses/MIT
+CC BY 4.0: https://creativecommons.org/licenses/by/4.0/

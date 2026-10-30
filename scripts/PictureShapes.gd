@@ -20,7 +20,7 @@ const SCHEDULE := {
 	31: "cloud", 33: "crown", 35: "bird", 37: "snowman", 39: "bulb",
 	41: "gem", 43: "bunny", 45: "car", 47: "cactus", 49: "owl",
 	51: "sailboat", 53: "moon", 55: "duck", 57: "guitar", 59: "turtle",
-	61: "mug", 63: "flower", 65: "whale", 67: "umbrella", 69: "trophy",
+	61: "mug", 63: "flower", 65: "whale", 67: "umbrella",
 	71: "dog", 73: "snail", 75: "teapot", 77: "castle", 79: "robot",
 	81: "lock", 83: "strawberry", 85: "balloon", 87: "cupcake", 89: "plane",
 	91: "penguin", 93: "pineapple", 95: "key", 97: "hot_air_balloon", 99: "arrow",
@@ -45,15 +45,81 @@ const NAMES := {
 }
 
 
+## The picture library (data/pictures.txt, made by tools/build_pictures.gd from open-licence
+## icon sets and hand-reviewed so every picture stays clear on the board): the pictures
+## and which level shows which one. The hand-drawn SCHEDULE above is only a fallback for
+## a build without the library.
+const LIBRARY_PATH := "res://data/pictures.txt"
+static var _library := {}
+static var _library_tried := false
+
+
+static func _lib() -> Dictionary:
+	if not _library_tried:
+		_library_tried = true
+		if FileAccess.file_exists(LIBRARY_PATH):
+			var data: Variant = str_to_var(FileAccess.get_file_as_string(LIBRARY_PATH))
+			if data is Dictionary:
+				_library = data
+	return _library
+
+
+static func _lib_picture(level: int) -> Dictionary:
+	var lib := _lib()
+	if lib.is_empty():
+		return {}
+	var i: int = int(lib.levels.get(level, -1))
+	return lib.pictures[i] if i >= 0 else {}
+
+
 static func name_for(level: int) -> String:
-	return NAMES.get(SCHEDULE.get(level, ""), "")
+	if not _lib().is_empty():
+		return str(_lib_picture(level).get("name", ""))
+	return NAMES.get(id_for(level), "")
+
+
+## Picture id for a level ("" = none). Every picture is used once only: no level ever
+## repeats another level's outline.
+static func id_for(level: int) -> String:
+	if not _lib().is_empty():
+		return str(_lib_picture(level).get("id", ""))
+	return SCHEDULE.get(level, "")
 
 
 ## Recipe for a level's picture, or {} if the level has none. ShapeFactory adds `fit`.
+## Library pictures also carry `min_cols`: the board must be at least that wide.
 static func recipe_for(level: int) -> Dictionary:
-	if not SCHEDULE.has(level):
+	if not _lib().is_empty():
+		var p := _lib_picture(level)
+		return {} if p.is_empty() else library_recipe(p)
+	var id := id_for(level)
+	if id == "":
 		return {}
-	return build(SCHEDULE[level])
+	return build(id)
+
+
+## A library picture as a bitmap recipe (see ShapeFactory._inside_raw).
+static func library_recipe(p: Dictionary) -> Dictionary:
+	var bytes: PackedByteArray = str(p.hex).hex_decode()
+	var n: int = int(p.bw) * int(p.bh)
+	var bits := PackedByteArray()
+	bits.resize(n)
+	for i in n:
+		bits[i] = (bytes[i >> 3] >> (i & 7)) & 1
+	return {"bitmap": bits, "bw": int(p.bw), "bh": int(p.bh), "rot": 0.0, "mirror": false,
+		"parts": [], "holes": [], "min_cols": int(p.min_cols)}
+
+
+## Every picture's recipe (library or hand-drawn), for ShapeFactory's no-repeat check.
+static func all_recipes() -> Array:
+	var out: Array = []
+	if not _lib().is_empty():
+		for p: Dictionary in _lib().pictures:
+			out.append(library_recipe(p))
+	else:
+		for id: String in SCHEDULE.values():
+			out.append(build(id))
+	return out
 
 
 static func build(id: String) -> Dictionary:

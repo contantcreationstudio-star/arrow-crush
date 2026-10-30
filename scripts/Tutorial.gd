@@ -379,10 +379,10 @@ func run() -> void:
 	await _arrow_step(_arrow_at("free"), "[b]Tap[/b] the glowing arrow.\nIt flies out the way it [b]points[/b]!", "exit", false, "sweet")
 	if _skipped: return
 	_lesson_head(2, "Crush!")
-	await _arrow_step(_arrow_at("crush"), "[b]Same colour[/b] in the way?\nTap it and they [color=#7c3aed][b]CRUSH![/b][/color]", "first")  # the board shows its own CRUSH! art
+	await _arrow_step(_arrow_at("crush"), "[b]Same colour[/b] in the way?\nTap it and they [color=#7c3aed][b]CRUSH![/b][/color] That's your goal!", "first")  # the board shows its own CRUSH! art
 	if _skipped: return
 	_lesson_head(3, "Pop to win", "wow")
-	await _info_step(_balloons_focus(), "Arrows [color=#e11d48][b]POP[/b][/color] balloons next to them or in their path.\n[color=#059669][b]Pop every balloon to win![/b][/color]")
+	await _info_step(_balloons_focus(), "Arrows [color=#e11d48][b]POP[/b][/color] balloons next to them or in their path.\n[color=#059669][b]Crush, pop every balloon and clear the board to win![/b][/color]")
 	if _skipped: return
 	_end()
 

@@ -14,7 +14,12 @@ extends RefCounted
 ## Deterministic: level N always gets the same outline on every phone, because the
 ## outlines are built in order from fixed seeds (and cached for the session).
 
-const CHAIN_LEVELS := 300      # levels that are checked against each other
+const CHAIN_LEVELS := 500      # every level's outline is checked against all earlier ones
+## The whole no-repeat chain is built once on a PC (bake(), see tools/bake_shapes.gd) and
+## shipped in this file, so a phone never spends seconds building 500 outlines. Bump
+## BAKE_VERSION whenever the outline code or the picture schedule changes, then re-bake.
+const BAKED_PATH := "res://data/shape_chain.txt"
+const BAKE_VERSION := 4
 const SIG_W := 16
 const SIG_H := 19
 const MAX_OVERLAP := 0.78      # IoU above this = "same shape as an earlier level"
@@ -24,6 +29,7 @@ const BOARD_ASPECT := 1.2      # rows / cols of a board (cells are square on scr
 static var _chain: Array[Dictionary] = []   # recipe per level (index = level - 1)
 static var _sigs: Array[PackedByteArray] = []
 static var _lock := Mutex.new()
+static var _baked_tried := false
 
 
 ## The outline recipe for a level. Levels beyond CHAIN_LEVELS (daily challenges) get a
@@ -41,6 +47,8 @@ static func recipe_for(level: int) -> Dictionary:
 	# a level that is already done never waits for the rest.
 	while true:
 		_lock.lock()
+		if not _baked_tried:
+			_load_baked()
 		if _chain.size() >= level:
 			var r := _chain[level - 1]
 			_lock.unlock()
@@ -48,6 +56,63 @@ static func recipe_for(level: int) -> Dictionary:
 		_extend_chain()
 		_lock.unlock()
 	return {}
+
+
+## Loads the baked chain (called under _lock). A missing or old file is ignored: the
+## chain is then built level by level as before.
+static func _load_baked() -> void:
+	_baked_tried = true
+	if not FileAccess.file_exists(BAKED_PATH):
+		return
+	var data: Variant = str_to_var(FileAccess.get_file_as_string(BAKED_PATH))
+	if not (data is Dictionary) or int(data.get("version", -1)) != BAKE_VERSION:
+		return
+	var list: Array = data.get("chain", [])
+	if list.size() < CHAIN_LEVELS:
+		return
+	_chain.clear()
+	for i in list.size():
+		var r: Dictionary = list[i]
+		if r.has("library"):
+			# Picture levels are stored as a marker: the bitmap lives in the picture library.
+			r = PictureShapes.recipe_for(i + 1)
+			if r.is_empty():
+				return  # library and chain out of step: rebuild level by level instead
+			r.fit = _fit(r)
+		_chain.append(r)
+
+
+## PC only: builds the whole no-repeat chain from scratch and saves it to BAKED_PATH.
+## Returns the worst overlap between any level and an earlier one (0..1).
+static func bake() -> float:
+	_lock.lock()
+	_baked_tried = true
+	_chain.clear()
+	_sigs.clear()
+	var worst := 0.0
+	while _chain.size() < CHAIN_LEVELS:
+		var before := _sigs.size()
+		_extend_chain()
+		var sig: PackedByteArray = _sigs[before]
+		_sigs.remove_at(before)
+		worst = maxf(worst, _max_overlap(sig))
+		_sigs.append(sig)
+	var stored: Array = []
+	for r in _chain:
+		stored.append({"library": true} if r.has("bitmap") else r)
+	var f := FileAccess.open(BAKED_PATH, FileAccess.WRITE)
+	f.store_string(var_to_str({"version": BAKE_VERSION, "chain": stored}))
+	f.close()
+	_lock.unlock()
+	return worst
+
+
+## Overlap (0..1, mirror images count as the same) between level a's and level b's
+## outlines, for checking that no two levels look alike.
+static func overlap(a: int, b: int) -> float:
+	var sa := _raster(recipe_for(a))
+	var sb := _raster(recipe_for(b))
+	return maxf(_iou(sa, sb), _iou(_mirror_sig(sa), sb))
 
 
 ## True if board point (u, v) - both in [-1, 1], v down - is inside the outline.
@@ -74,12 +139,14 @@ static func _extend_chain() -> void:
 	var best := {}
 	var best_sig := PackedByteArray()
 	var best_overlap := INF
-	for t in TRIES:
+	# Keep trying (a bake runs on a PC, so it can afford it) until the outline is unlike
+	# every earlier level AND every picture, also the ones that come later.
+	for t in TRIES * 8:
 		var r := _random_recipe(rng, complexity)
 		var sig := _signature(r)
 		if sig.is_empty():
 			continue
-		var overlap := _max_overlap(sig)
+		var overlap := maxf(_max_overlap(sig), _picture_overlap(sig))
 		if overlap < best_overlap:
 			best_overlap = overlap
 			best = r
@@ -91,6 +158,22 @@ static func _extend_chain() -> void:
 		best_sig = _signature(best)
 	_chain.append(best)
 	_sigs.append(best_sig)
+
+
+static var _pic_sigs: Array[PackedByteArray] = []
+
+
+## Overlap with the closest picture outline (heart, apple...), wherever it is scheduled.
+static func _picture_overlap(sig: PackedByteArray) -> float:
+	if _pic_sigs.is_empty():
+		for pic: Dictionary in PictureShapes.all_recipes():
+			pic.fit = _fit(pic)
+			_pic_sigs.append(_raster(pic))
+	var flipped := _mirror_sig(sig)
+	var worst := 0.0
+	for other in _pic_sigs:
+		worst = maxf(worst, maxf(_iou(sig, other), _iou(flipped, other)))
+	return worst
 
 
 static func _max_overlap(sig: PackedByteArray) -> float:
@@ -424,6 +507,17 @@ static func _bounds(r: Dictionary, from: Vector2, to: Vector2, steps: int) -> Re
 # --- Point tests ---------------------------------------------------------------------------
 
 static func _inside_raw(r: Dictionary, p: Vector2, with_holes: bool) -> bool:
+	if r.has("bitmap"):
+		# A picture from the icon library (PictureLibrary): a bw x bh mask spanning
+		# x -1..1 and y -bh/bw..bh/bw.
+		var bw: int = r.bw
+		var bh: int = r.bh
+		var aspect := float(bh) / bw
+		var px := int(floorf((p.x + 1.0) * 0.5 * bw))
+		var py := int(floorf((p.y / aspect + 1.0) * 0.5 * bh))
+		if px < 0 or py < 0 or px >= bw or py >= bh:
+			return false
+		return (r.bitmap as PackedByteArray)[py * bw + px] != 0
 	if r.rot != 0.0:
 		p = p.rotated(-r.rot)
 	if r.mirror:

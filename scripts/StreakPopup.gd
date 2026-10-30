@@ -183,6 +183,9 @@ func _button(text: String, primary: bool, icon: Texture2D = null) -> Button:
 		GameSkin.button_3d(b, Color("#22c55e"), Color("#15803d"), Color.WHITE, heavy)
 	else:
 		GameSkin.button_3d(b, Color("#ede9fe"), GameSkin.CARD_LIP, GameSkin.VIOLET, heavy)
+	if icon:
+		# Video icon and text as one centred group (the icon tells it's a video).
+		GameSkin.dress(b, text.replace("(watch video)", "").strip_edges(), icon)
 	_col.add_child(b)
 	return b
 

@@ -22,7 +22,9 @@ and too many ads.
   You earn less, but there are no long unskippable videos.
 - The game already follows these rules (see `scripts/AdManager.gd`):
   - no ad when the app opens or returns from the background
-  - an interstitial only every 5 won levels, from level 15 on, never after a loss,
+  - FIRST RELEASE: interstitials are switched OFF (AdManager.INTERSTITIALS_ENABLED = false);
+    only player-chosen rewarded videos run. Turn them on in an update after ~1000 downloads.
+  - when on: an interstitial only every 5 won levels, from level 15 on, never after a loss,
     at least 4 minutes after any other ad, and at most 5 a day. These limits are by time
     and per day, so they stay the same however many levels the game gets.
   - a rewarded video only when the player taps a button, and one video = the full reward
@@ -47,6 +49,7 @@ showing many ads. To stay safe:
   on its own if the traffic is clean.
 - The game also protects itself (`scripts/AdManager.gd`):
   - at most 5 interstitials and 25 rewarded videos per player per day
+  - the shop's free-coin video (+100 coins) at most 5 times per day (GameData.COIN_VIDEOS_PER_DAY)
   - input is held 0.6 s before an ad opens, so a tap on "Next" can't become an ad click
   - ads are limited to content rating G in the code as well
 
@@ -85,7 +88,7 @@ where the player left it. The file is stored **only on the player's own phone**
   एक ऐड, दो ऐड के बीच कम से कम 4 मिनट, हारने पर ऐड नहीं, और अटका हुआ ऐड 75 सेकंड में अपने-आप
   बंद होकर इनाम दे देता है। ये नियम समय पर चलते हैं, इसलिए कितने भी लेवल हों, ऐड उतने ही रहेंगे।
 - अपने असली ads पर कभी click न करें, न किसी से करवाएँ। अपने phone को `TEST_DEVICE_IDS` में डालें।
-- गेम में रोज़ की सीमा है: 5 interstitial और 25 rewarded video। ऐड खुलने से पहले 0.6 सेकंड tap बंद रहता है।
+- गेम में रोज़ की सीमा है: 5 interstitial और 25 rewarded video। सिक्कों वाला वीडियो (+100) दिन में सिर्फ़ 5 बार। ऐड खुलने से पहले 0.6 सेकंड tap बंद रहता है।
 - AdMob की "high engagement" setting चालू न करें। Target audience सिर्फ़ 18+ रखें, और गेम को बच्चों के
   channel पर promote न करें।
 - `app-ads.txt` वेबसाइट पर तैयार है। असली AdMob ID मिलने पर उसमें एक लाइन जोड़नी है।
