@@ -28,3 +28,6 @@ desktop.ini
 
 # Downloaded icon sets (source for tools/build_pictures.gd; the processed result is data/pictures.txt)
 tools/icon_src/
+
+# Personal Claude Code settings for this project
+.claude/settings.local.json
