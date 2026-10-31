@@ -1535,7 +1535,7 @@ func _set_armed(kind: String) -> void:
 	if kind == "":
 		return
 	var button: Button = _booster_buttons[kind]
-	_power_pulse = create_tween().set_loops()
+	_power_pulse = button.create_tween().set_loops()  # dies with the button (a loop on a freed node spins forever)
 	_power_pulse.tween_property(button, "scale", Vector2.ONE * 1.12, 0.35).set_trans(Tween.TRANS_SINE)
 	_power_pulse.parallel().tween_property(button, "modulate", Color(1.35, 1.15, 0.55), 0.35).set_trans(Tween.TRANS_SINE)
 	_power_pulse.tween_property(button, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_SINE)

@@ -113,8 +113,10 @@ func _splash(fade_out: bool) -> void:
 		var tt := create_tween()
 		tt.tween_property(tagline, "modulate:a", 1.0, 0.4).set_delay(0.45)
 		tt.parallel().tween_property(tagline, "position:y", tagline.position.y, 0.4).from(tagline.position.y + 20).set_delay(0.45)
-		# Then the whole logo floats gently.
-		var bob := create_tween().set_loops()
+		# Then the whole logo floats gently. The tween belongs to the logo, so it stops
+		# when the splash (and the logo) is freed - a loop tweening a freed node has no
+		# duration and spins forever (it froze the main thread on phones).
+		var bob := logo.create_tween().set_loops()
 		bob.tween_property(logo, "position:y", centre.y - 8.0, 1.2).set_trans(Tween.TRANS_SINE)
 		bob.tween_property(logo, "position:y", centre.y, 1.2).set_trans(Tween.TRANS_SINE))
 	logo.play(func(strength: float) -> void: _shake(layer, strength))
@@ -281,7 +283,7 @@ func _build_consent() -> void:
 	var lt := create_tween()
 	lt.tween_property(logo, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	lt.tween_callback(func() -> void:
-		var bob := create_tween().set_loops()
+		var bob := logo.create_tween().set_loops()
 		bob.tween_property(logo, "position:y", 4.0, 1.1).set_trans(Tween.TRANS_SINE)
 		bob.tween_property(logo, "position:y", 12.0, 1.1).set_trans(Tween.TRANS_SINE))
 
@@ -310,7 +312,7 @@ func _build_consent() -> void:
 	at.tween_property(accept, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	at.tween_callback(func() -> void:
 		# A soft "tap me" pulse, paused while the finger is on it.
-		var pulse := create_tween().set_loops()
+		var pulse := accept.create_tween().set_loops()
 		pulse.tween_property(accept, "scale", Vector2.ONE * 1.04, 0.6).set_trans(Tween.TRANS_SINE).set_delay(0.8)
 		pulse.tween_property(accept, "scale", Vector2.ONE, 0.6).set_trans(Tween.TRANS_SINE)
 		accept.button_down.connect(func() -> void:
