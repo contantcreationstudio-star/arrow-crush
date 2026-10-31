@@ -196,7 +196,7 @@ func _row(kind: String, highlight: bool) -> Control:
 	buy.add_theme_font_size_override("font_size", 30)
 	GameSkin.button_3d(buy, Color("#fbbf24"), Color("#b45309"), Color("#7c2d12"), _font)
 	# Coin and price centred together on the gold key.
-	GameSkin.dress(buy, str(GameData.PRICES[kind]), GameSkin.COIN_TEX)
+	GameSkin.dress(buy, str(GameData.price_of(kind)), GameSkin.COIN_TEX)
 	buy.pressed.connect(_buy.bind(kind, row))
 	if not GameData.booster_unlocked(kind):
 		GameSkin.dress(buy, "Lv %d" % int(GameData.BOOSTER_UNLOCK[kind]))
@@ -213,7 +213,7 @@ func _buy(kind: String, row: Control) -> void:
 		_note.add_theme_color_override("font_color", MUTED)
 		_bump(row)
 		return
-	var price := int(GameData.PRICES[kind])
+	var price := GameData.price_of(kind)
 	if GameData.coins < price:
 		GameData.play_sfx("thud")
 		GameData.vibrate(30)
@@ -241,7 +241,10 @@ func _refresh() -> void:
 			(_buys[kind] as Button).modulate.a = 0.45
 			continue
 		(_counts[kind] as Label).text = "x%d" % GameData.booster_count(kind)
-		(_buys[kind] as Button).modulate.a = 1.0 if GameData.coins >= int(GameData.PRICES[kind]) else 0.55
+		var price := GameData.price_of(kind)
+		if (_buys[kind] as Button).get_meta("dress_text", "") != str(price):
+			GameSkin.dress(_buys[kind], str(price), GameSkin.COIN_TEX)   # price doubled after a buy
+		(_buys[kind] as Button).modulate.a = 1.0 if GameData.coins >= price else 0.55
 
 
 func _close() -> void:

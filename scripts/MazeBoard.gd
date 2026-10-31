@@ -61,6 +61,11 @@ const FW_RAYS := preload("res://icons/fx/fw_rays.png")
 const FW_CORE := preload("res://icons/fx/fw_core.png")
 const FW_STAR := preload("res://icons/fx/fw_star.png")
 const FW_ROCKET := preload("res://icons/fx/fw_rocket.png")
+# Colour dots left behind by arrows (Affinity): a greyscale ball tinted per colour + an untinted gloss.
+const BLOCK_BASE := preload("res://icons/fx/dot_base.png")
+const BLOCK_GLOSS := preload("res://icons/fx/dot_gloss.png")
+const BLOCK_POP := 0.32   # seconds a dot takes to pop in
+const BLOCK_SIZE := 0.4   # dot diameter in cells (small: a dotted picture, not tiles)
 const FX_SHARDS: Array[Texture2D] = [preload("res://icons/fx/crush_shard_0.png"),
 	preload("res://icons/fx/crush_shard_1.png"), preload("res://icons/fx/crush_shard_2.png")]
 const COMBO_TEX: Array[Texture2D] = [preload("res://icons/fx/combo_crush.png"), preload("res://icons/fx/combo_sweet.png"),
@@ -142,7 +147,7 @@ var crushed := 0                      # arrows broken (crush, domino, blast) - f
 var magnet := false                   # arrows facing a fresh gap slide over to a same-colour arrow and crush it
 const MAGNET_REACH := 3               # most empty cells a magnet slide crosses
 var bonus_out := 0                    # bonus arrows flown out before their count hit 0
-const BONUS_COINS := 15               # coins per bonus arrow, paid when the level is won
+const BONUS_COINS := 5                # coins per bonus arrow, paid when the level is won
 
 var _palette := Gradient.new()
 var _power_palette := Gradient.new()
@@ -157,6 +162,7 @@ var _picture := 0.0                  # 0..1 - the finished-picture glow at the e
 var _paint := {}                     # cell -> colour the leaving arrow left there (blended where colours meet)
 var _ribbons: Array = []             # brush strokes, one per arrow gone: {pts, color, at, tail, head}
 var _splashes: Array = []            # colour splashes where arrows crushed: {cell, color, at}
+var _block_hidden := {}              # cell -> true: a colour block an arrow is standing on (not drawn)
 # Performance: the painting lives on its own layer that is only redrawn while something in
 # it is changing, and the dots use one small texture with their per-cell maths cached.
 var _paint_layer: Node2D
@@ -285,7 +291,9 @@ func build(data: Dictionary) -> void:
 	cols = data.cols
 	rows = data.rows
 	mask = data.mask
-	_silhouette = _silhouette_texture(data.get("picture", {}))
+	# The soft picture silhouette behind the board is switched off: the player found it
+	# distracting. The arrows' dots still draw the picture as the level is cleared.
+	_silhouette = null
 	creep_steps = int(data.get("creep", 0))
 	creep_waves = int(data.get("creep_waves", 1))
 	_intro_start = _clock
@@ -296,6 +304,7 @@ func build(data: Dictionary) -> void:
 	_paint.clear()
 	_ribbons.clear()
 	_splashes.clear()
+	_block_hidden.clear()
 	_touch_paint(0.0)
 	_play_intro_zoom()
 	var colors: Array = data.get("colors", [])
@@ -306,7 +315,9 @@ func build(data: Dictionary) -> void:
 	for t: Vector2i in data.get("targets", {}):
 		targets[t] = false
 	_target_hit_at.clear()
-	crates = data.get("crates", {}).duplicate()
+	crates = {}
+	for c: Vector2i in data.get("crates", {}):
+		crates[c] = 1  # one hit breaks a crate (older saves may hold 2-3 layers)
 	_crate_view = crates.duplicate()
 	color_removed = {}
 	var ice: Dictionary = data.get("ice", {})
@@ -2090,6 +2101,7 @@ func _creep_move(a: ArrowPath, cells: Array[Vector2i], steps: int, delay: float)
 		occupancy.erase(c)
 	arrows.erase(a)
 	var moved := _spawn(cells, flags.color, flags.special)
+	_touch_paint(delay + 0.5)  # blocks under the new spot hide, freed ones come back
 	_apply_flags(moved, flags)
 	moved.visible = false
 	moved.busy = true
@@ -2503,6 +2515,8 @@ func _draw() -> void:
 			if not fx.is_empty():
 				p = clampf((_clock - fx.start) / RIPPLE_TIME, 0.0, 1.0)
 		if p <= 0.0 or p >= 1.0:
+			if _paint.has(_dot_cells[i]) and _clock >= float(_revealed.get(_dot_cells[i], 0.0)):
+				continue  # a colour block sits here now
 			# One textured quad per dot (batched) instead of a tessellated circle.
 			draw_texture_rect(_dot_tex, Rect2(pos - Vector2(radius, radius), Vector2(radius, radius) * 2.0), false, base)
 			continue
@@ -2551,34 +2565,14 @@ func _draw() -> void:
 # paint is pale; when the level is won the gaps fill in, the colours deepen and a shine
 # sweeps across - a picture made by how this player cleared this board.
 
-## Paints `arrow`'s cells and brush stroke; neighbouring paint of other colours bleeds in.
+## Every cell the arrow covered becomes a colour block. Blocks take the level's colour
+## theme (a smooth gradient across the board), not the arrow's colour, so the finished
+## picture is always a clean blend however the colours were mixed on the board.
 func _leave_paint(arrow: ArrowPath, delay: float) -> void:
-	var col := arrow.base_color()
-	var own := {}
 	for c in arrow.cells:
-		own[c] = true
-	for c in arrow.cells:
-		var mine := col
-		for d in NEIGHBOURS:
-			var n := c + d
-			if _paint.has(n) and not own.has(n):
-				var theirs: Color = _paint[n]
-				_paint[n] = theirs.lerp(col, 0.2)
-				mine = mine.lerp(theirs, 0.2)
-		_paint[c] = mine
-	# Empty cells beside it that no arrow ever covers take its colour too, so the
-	# wash has no white holes.
-	for c in arrow.cells:
-		for dy in range(-1, 2):
-			for dx in range(-1, 2):
-				var e := c + Vector2i(dx, dy)
-				if mask.has(e) and not _paint.has(e) and not occupancy.has(e):
-					_paint[e] = col.lerp(Color.WHITE, 0.15)
-					_revealed[e] = _clock + delay + 0.3
-	_ribbons.append({"pts": arrow.body_points(), "color": col, "at": _clock + delay + 0.12,
-		"tail": arrow.cells[0], "head": arrow.head()})
-	# Cells fade in up to 0.45 s after their reveal time (the head's comes last).
-	_touch_paint(delay + 0.4 + arrow.cells.size() * 0.035 + 0.5)
+		_paint[c] = _block_color(c)
+	# Blocks pop in up to BLOCK_POP s after their reveal time (the head's comes last).
+	_touch_paint(delay + 0.4 + arrow.cells.size() * 0.035 + BLOCK_POP + 0.1)
 
 
 ## The painting changed: bump the cache key and keep redrawing it for `secs` more.
@@ -2597,18 +2591,9 @@ func _splash(hit_cell: Vector2i, a: ArrowPath, b: ArrowPath, t: float) -> void:
 	var mix := ca.lerp(cb, 0.5)
 	if ca.is_equal_approx(cb):
 		mix = ca.lightened(0.22)
-	for dy in range(-1, 2):
-		for dx in range(-1, 2):
-			var c := hit_cell + Vector2i(dx, dy)
-			if _paint.has(c):
-				_paint[c] = (_paint[c] as Color).lerp(mix, 0.65 if dx == 0 and dy == 0 else 0.4)
+	# The blocks keep their clean colours; only a short flash of the mix blooms over them.
 	_splashes.append({"cell": hit_cell, "color": mix, "at": _clock + t})
 	_touch_paint(t + 0.5)
-	for arrow in [a, b]:
-		for i in range(_ribbons.size() - 1, -1, -1):
-			if _ribbons[i].tail == arrow.cells[0] and _ribbons[i].head == arrow.head():
-				_ribbons[i].color = (_ribbons[i].color as Color).lerp(mix, 0.35)
-				break
 
 
 func _soft() -> Texture2D:
@@ -2638,115 +2623,49 @@ func _draw_picture() -> void:
 ## appears and runs the finishing shine; the win card draws it still.
 func draw_painting(ci: CanvasItem, off: Vector2, k: float, glow: float, live: bool) -> void:
 	var soft := _soft()
-	# 1) Colour field: every cell is a quad whose corners take the average colour of the
-	#    painted cells around them, so colours flow smoothly into each other while the
-	#    shape keeps a clean edge.
-	var cell_a := {}
-	var settled := true  # every painted cell fully faded in: the corner colours can be reused
+	# 1) Colour dots (Affinity ball, tinted): one glossy dot per cleared cell in the level's
+	#    colour theme. Lighter while playing so the arrows stay the stars; full colour on
+	#    the finished picture. Each dot pops in when revealed.
+	var pale := lerpf(0.35, 0.0, glow)
+	var alpha := lerpf(0.9, 1.0, glow)
+	var full := Vector2.ONE * CELL * k * BLOCK_SIZE
 	for c: Vector2i in _paint:
+		var s := 1.0
 		var a := 1.0
 		if live:
+			# An arrow crept onto this block: hide it, and pop it back once the arrow is gone.
+			if occupancy.has(c):
+				_block_hidden[c] = true
+				continue
+			if _block_hidden.has(c):
+				_block_hidden.erase(c)
+				_revealed[c] = _clock
+				_touch_paint(BLOCK_POP + 0.1)
 			var age := _clock - float(_revealed.get(c, _clock))
 			if age < 0.0:
-				settled = false
 				continue
-			a = clampf(age / 0.45, 0.0, 1.0)
-			if a < 1.0:
-				settled = false
-		cell_a[c] = a
-	var corner := {}
-	var cached := settled and _corner_version == _paint_version
-	if cached:
-		corner = _corner_cache
-	for c: Vector2i in cell_a:
-		if cached:
+			var p := clampf(age / BLOCK_POP, 0.0, 1.0)
+			s = lerpf(0.35, 1.0, _ease_out_back(p))
+			a = clampf(p * 3.0, 0.0, 1.0)
+		var col: Color = _paint[c]
+		var tint := Color(col.r, col.g, col.b).lerp(Color.WHITE, pale)
+		tint.a = alpha * a
+		var size := full * s
+		var rect := Rect2(off + _center(c) * k - size / 2.0, size)
+		ci.draw_texture_rect(BLOCK_BASE, rect, false, tint)
+		ci.draw_texture_rect(BLOCK_GLOSS, rect, false, Color(1, 1, 1, lerpf(0.75, 1.0, glow) * a))
+	# 2) Crush splashes: a quick bloom of the mixed colour that fades away again.
+	for sp: Dictionary in _splashes:
+		if not live:
 			break
-		for q: Vector2i in QUAD_CORNERS:
-			var v: Vector2i = c + q
-			if corner.has(v):
-				continue
-			# Colour: the painted cells around the corner, weighted by how far each has
-			# faded in. Alpha: their share of the shape cells around it, so the paint
-			# feathers off softly towards cells still covered by arrows, while the
-			# outline of the shape stays crisp.
-			var rgb := Color(0, 0, 0, 0)
-			var weight := 0.0
-			var inside := 0
-			for o: Vector2i in CORNER_CELLS:
-				var nb: Vector2i = v + o
-				if mask.has(nb):
-					inside += 1
-				if cell_a.has(nb):
-					var w: float = cell_a[nb]
-					rgb += (_paint[nb] as Color) * w
-					weight += w
-			var col := rgb / maxf(weight, 0.001)
-			col.a = weight / maxi(1, inside)
-			corner[v] = col
-	if live and settled and not cached:
-		_corner_cache = corner
-		_corner_version = _paint_version
-	var pale := lerpf(0.62, 0.1, glow)   # a light wash while playing, full colour when won
-	var alpha := lerpf(0.5, 1.0, glow)
-	for c: Vector2i in cell_a:
-		var quad := PackedVector2Array()
-		var tints := PackedColorArray()
-		for q: Vector2i in QUAD_CORNERS:
-			var v: Vector2i = c + q
-			quad.append(off + Vector2(v) * CELL * k)
-			var col: Color = corner[v]
-			var t := Color(col.r, col.g, col.b).lerp(Color.WHITE, pale)
-			t.a = col.a * alpha
-			tints.append(t)
-		ci.draw_polygon(quad, tints)
-	# 2) Crush splashes: a wider, brighter bloom of the mixed colour.
-	for s: Dictionary in _splashes:
-		var a := 1.0
-		if live:
-			var age: float = _clock - s.at
-			if age < 0.0:
-				continue
-			a = clampf(age / 0.3, 0.0, 1.0)
-		var col: Color = s.color
-		var bloom := col.lerp(Color.WHITE, lerpf(0.4, 0.05, glow))
-		bloom.a = a * lerpf(0.18, 0.4, glow)
-		var r := CELL * k * (1.0 + 0.5 * (1.0 - a))
-		ci.draw_texture_rect(soft, Rect2(off + _center(s.cell) * k - Vector2(r, r), Vector2(r, r) * 2.0), false, bloom)
-	# 3) Brush strokes along every arrow that left - only on the finished picture (while
-	#    playing they would look like faded arrows still on the board).
-	for rb: Dictionary in _ribbons:
-		if glow <= 0.0:
-			break
-		var a := 1.0
-		if live:
-			var age: float = _clock - rb.at
-			if age < 0.0:
-				continue
-			a = clampf(age / 0.4, 0.0, 1.0)
-		var pts := PackedVector2Array()
-		for p: Vector2 in rb.pts:
-			pts.append(off + p * k)
-		if pts.size() < 2:
+		var age: float = _clock - sp.at
+		if age < 0.0 or age > 0.9:
 			continue
-		var col: Color = rb.color
-		var w := CELL * k * lerpf(0.16, 0.2, glow)
-		# Embossed: a darker groove under a lighter, glossy line, like a raised brush stroke.
-		var dark := col.darkened(0.3)
-		dark.a = a * 0.55 * glow
-		var groove := PackedVector2Array()
-		for p in pts:
-			groove.append(p - ArrowPath.LIGHT * w * 0.35)
-		ci.draw_polyline(groove, dark, w * 1.1, true)
-		var stroke := col.lerp(Color.WHITE, lerpf(0.45, 0.3, glow))
-		stroke.a = a * glow
-		ci.draw_polyline(pts, stroke, w, true)
-		ci.draw_circle(pts[0], w * 0.5, stroke, true, -1.0, true)
-		ci.draw_circle(pts[-1], w * 0.5, stroke, true, -1.0, true)
-		if glow > 0.0:
-			var hi := PackedVector2Array()
-			for p in pts:
-				hi.append(p + ArrowPath.LIGHT * w * 0.2)
-			ci.draw_polyline(hi, Color(1, 1, 1, 0.55 * glow * a), w * 0.3, true)
+		var a := clampf(age / 0.15, 0.0, 1.0) * (1.0 - clampf((age - 0.3) / 0.6, 0.0, 1.0))
+		var bloom := (sp.color as Color).lerp(Color.WHITE, 0.3)
+		bloom.a = a * 0.45
+		var r := CELL * k * (1.0 + 0.6 * clampf(age / 0.9, 0.0, 1.0))
+		ci.draw_texture_rect(soft, Rect2(off + _center(sp.cell) * k - Vector2(r, r), Vector2(r, r) * 2.0), false, bloom)
 	# 4) Finished: a soft shine sweeps across the painting now and then.
 	if live and glow > 0.0:
 		# The first sweep starts as the painting completes, while it is held in view.
@@ -2764,35 +2683,22 @@ func draw_painting(ci: CanvasItem, off: Vector2, k: float, glow: float, live: bo
 func picture_color(c: Vector2i) -> Color:
 	if _paint.has(c):
 		return _paint[c]
-	var g := (float(c.x) / maxi(1, cols) + float(c.y) / maxi(1, rows)) / 2.0
+	return _block_color(c)
+
+
+## The level theme's colour at cell `c`: top-left to bottom-right across the board.
+func _block_color(c: Vector2i) -> Color:
+	var g := (float(c.x) / maxi(1, cols - 1) + float(c.y) / maxi(1, rows - 1)) / 2.0
 	return _palette.sample(g) if _palette else Color("#a78bfa")
 
 
-## Level complete: cells no arrow ever covered take the blend of their painted
-## neighbours (spreading in from the paint), the whole picture fills in from the
-## middle, then the colours deepen and the shine starts.
+## Level complete: the cells no arrow ever covered get their blocks too, the whole
+## picture fills in from the middle, then the colours deepen and the shine starts.
 func celebrate_picture() -> void:
-	for pass_i in 8:
-		var fill := {}
-		for c: Vector2i in mask:
-			if _paint.has(c):
-				continue
-			var sum := Color(0, 0, 0, 0)
-			var n := 0
-			for dy in range(-1, 2):
-				for dx in range(-1, 2):
-					var nb := c + Vector2i(dx, dy)
-					if _paint.has(nb):
-						sum += _paint[nb]
-						n += 1
-			if n > 0:
-				fill[c] = (sum / n).lightened(0.08)
-		if fill.is_empty():
-			break
-		_paint.merge(fill)
+	# Every cell of the shape gets its block in the level's colour theme.
 	for c: Vector2i in mask:
 		if not _paint.has(c):
-			_paint[c] = picture_color(c)
+			_paint[c] = _block_color(c)
 	var mid := Vector2(cols, rows) / 2.0
 	var last := 0.0
 	for c: Vector2i in mask:
@@ -3054,6 +2960,203 @@ func release_all() -> float:
 		if i % 3 == 0:
 			_later(t, GameData.play_sfx.bind("slide", 1.0 + minf(i * 0.02, 0.8)))
 	return t + 0.8 if not list.is_empty() else 0.0
+
+
+## The goals are done with arrows still on the board: a school of flying fish swoops
+## in, each one grabs an arrow and carries it off screen, so the player never has to
+## clear the rest by hand. Falls back to release_all() if the fish art is missing.
+## Returns how long until the last fish is gone.
+const FISH_IN := 0.5         # seconds a fish takes to reach its arrow
+const FISH_OUT := 0.75       # seconds to carry it off screen
+const FISH_GAP := 0.07       # seconds between fish (squeezed so big boards stay quick)
+const FISH_SPREAD := 1.4     # the last fish sets off no later than this
+const FISH_BODY_PATH := "res://icons/fx/fish_body.png"
+const FISH_FIN_PATH := "res://icons/fx/fish_fin.png"
+const FISH_FIN_ROOT := Vector2(160, 244)     # wing root inside fish_fin.png (px)
+const FISH_FIN_AT := Vector2(0.086, -0.082)  # where it joins the body, in fish widths from its centre
+
+func fish_carry_all() -> float:
+	if not ResourceLoader.exists(FISH_BODY_PATH) or not ResourceLoader.exists(FISH_FIN_PATH):
+		return release_all()
+	var body_tex: Texture2D = load(FISH_BODY_PATH)
+	var fin_tex: Texture2D = load(FISH_FIN_PATH)
+	_cleared_sent = true
+	_aimers.clear()
+	var list := arrows.duplicate()
+	arrows.clear()
+	occupancy.clear()
+	if list.is_empty():
+		return 0.0
+	list.shuffle()
+	# Screen rectangle in canvas coordinates (fish fly in and out past its edges).
+	var view := get_viewport().get_canvas_transform().affine_inverse() * get_viewport_rect()
+	var board_scale := get_global_transform().get_scale().x
+	var gap := minf(FISH_GAP, FISH_SPREAD / float(list.size()))
+	var t := 0.0
+	for i in list.size():
+		t = i * gap
+		_fish_grab(list[i], t, body_tex, fin_tex, view, board_scale, i)
+	return t + FISH_IN + FISH_OUT + 0.15
+
+
+func _fish_grab(a: ArrowPath, delay: float, body_tex: Texture2D, fin_tex: Texture2D,
+		view: Rect2, board_scale: float, i: int) -> void:
+	a.busy = true
+	# Held by its middle, so long arrows hang balanced instead of swinging off one end.
+	var mid := Vector2.ZERO
+	var lo := Vector2(INF, INF)
+	var hi := -lo
+	for c: Vector2i in a.cells:
+		var cp := _center(c)
+		mid += cp
+		lo = lo.min(cp)
+		hi = hi.max(cp)
+	mid /= maxf(1.0, a.cells.size())
+	var target := to_global(mid)
+	var span := ((hi - lo).length() + CELL) * board_scale   # arrow's length on screen
+	var from_left := (i % 2 == 0) if randf() < 0.7 else randf() < 0.5
+	var margin := view.size.x * 0.12
+	var start := Vector2(view.position.x - margin if from_left else view.end.x + margin,
+		target.y + randf_range(-0.25, 0.15) * view.size.y)
+	# Off the far side and upwards: the fish keeps its swoop going.
+	var finish := Vector2(view.end.x + margin if from_left else view.position.x - margin,
+		target.y - randf_range(0.25, 0.55) * view.size.y)
+	# Each fish a touch different in size, so the school doesn't look stamped out.
+	var size := clampf(CELL * 1.5 * board_scale, 96.0, 170.0) * randf_range(0.88, 1.08)  # fish width on screen
+	var hang := size * 0.34              # how far below the fish the arrow hangs
+	var grab := target - Vector2(0, hang)  # fish stops here, so the arrow is caught right where it lies
+	_later(delay, func() -> void:
+		if not is_instance_valid(a):
+			return
+		var fish := Node2D.new()
+		fish.top_level = true
+		fish.z_index = ArrowPath.FLY_Z + 2
+		fish.position = start
+		add_child(fish)
+		var face := 1.0 if from_left else -1.0
+		var px := size / body_tex.get_width()
+		var fin := Sprite2D.new()
+		fin.texture = fin_tex
+		fin.centered = false
+		fin.offset = -FISH_FIN_ROOT        # the wing beats around its root
+		fin.position = FISH_FIN_AT * size
+		fin.scale = Vector2.ONE * px
+		var body := Sprite2D.new()
+		body.texture = body_tex
+		body.scale = Vector2.ONE * px
+		var look := Node2D.new()   # mirrored for fish flying leftwards
+		look.scale = Vector2(face, 1.0)
+		fish.add_child(look)
+		look.add_child(body)
+		look.add_child(fin)      # the wing sits over the body
+		var tint := a.base_color()
+		# One unbroken swoop: dip in under the arrow, scoop it up without stopping, climb away.
+		# Speed eases down to ~40% at the catch and picks back up, so it reads as a grab,
+		# not a halt. `s` holds the state the per-frame step needs.
+		var bend := (start + grab) * 0.5 + Vector2(0, view.size.y * 0.14)
+		var lift := (grab + finish) * 0.5 - Vector2(0, view.size.y * 0.06)
+		var dur := FISH_IN + FISH_OUT
+		var s := {"t": 0.0, "phase": randf() * TAU, "caught": -1.0, "held": null, "trail": 0.0,
+			"hv": Vector2.ZERO}
+		var step := func(u: float) -> void:
+			var now := u * dur
+			var dt := maxf(now - float(s.t), 0.0)
+			s.t = now
+			var f := u + 0.6 * sin(TAU * u) / TAU      # slow in the middle, quick at both ends
+			var p: Vector2
+			if f < 0.5:
+				var k := f * 2.0
+				p = start.lerp(bend, k).lerp(bend.lerp(grab, k), k)
+			else:
+				var k := (f - 0.5) * 2.0
+				p = grab.lerp(lift, k).lerp(lift.lerp(finish, k), k)
+			# Tilt along the flight, eased so the fish banks rather than snaps.
+			var v := p - fish.position
+			if v.length() > 0.5:
+				var want := clampf(atan2(v.y, absf(v.x)), -0.6, 0.6) * face
+				fish.rotation = lerp_angle(fish.rotation, want, 0.3)
+			fish.position = p
+			# Wings: a calm glide coming in, hard beats while carrying the load.
+			var carrying := float(s.caught) >= 0.0
+			s.phase = float(s.phase) + dt * TAU * (12.0 if carrying else 7.5)
+			var beat := 0.5 + 0.5 * cos(float(s.phase))
+			fin.scale = Vector2(px, px * lerpf(-0.45, 1.0, beat))
+			fin.rotation = (beat - 0.5) * 0.25
+			# Swimming wiggle: a soft bob and stretch in time with the wings.
+			var swim := sin(float(s.phase) * 0.5)
+			look.position.y = swim * size * 0.025
+			var sq := Vector2.ONE
+			if carrying:   # springy squash right after the catch
+				var since := now - float(s.caught)
+				var j := exp(-since * 9.0) * cos(since * 28.0)
+				sq = Vector2(1.0 + 0.16 * j, 1.0 - 0.13 * j)
+			body.scale = Vector2(px, px) * sq * Vector2(1.0 + 0.03 * swim, 1.0 - 0.03 * swim)
+			# Nearer the camera as it leaves: a slight grow on the way out.
+			fish.scale = Vector2.ONE * (1.0 + 0.14 * clampf((f - 0.5) * 2.0, 0.0, 1.0))
+			if not carrying and f >= 0.5:
+				s.caught = now
+				s.held = _fish_catch(a, target, clampf(size * 1.25 / span, 0.22, 0.52), tint)
+			var held: Node2D = s.held
+			if is_instance_valid(held):
+				# The arrow swings under the fish like a weight on a string: it trails the
+				# anchor point with a spring, and leans the way it is being dragged.
+				var anchor := p + Vector2(0, hang).rotated(fish.rotation * 0.5) * fish.scale.y
+				var hv: Vector2 = s.hv
+				hv = hv.lerp((anchor - held.position) * 22.0, minf(1.0, dt * 14.0))
+				s.hv = hv
+				held.position += hv * dt
+				var pull := held.position - p
+				held.rotation = lerp_angle(held.rotation,
+					clampf(-atan2(pull.x, pull.y), -0.7, 0.7), minf(1.0, dt * 10.0))
+				# A little glittering wake behind the fish while it carries.
+				s.trail = float(s.trail) - dt
+				if float(s.trail) <= 0.0:
+					s.trail = 0.06
+					var tail := p + Vector2(-size * 0.42 * face, 0).rotated(fish.rotation)
+					var lp := to_local(tail)
+					var sc := 1.0 / maxf(board_scale, 0.01)
+					_sprite_fx(FX_SPARKLE, lp, 0.0, size * 0.10 * sc, size * randf_range(0.16, 0.24) * sc,
+						randf_range(0.35, 0.5), randf_range(-2.5, 2.5),
+						tint.lightened(0.45) if randf() < 0.6 else Color(1, 1, 0.88),
+						ArrowPath.FLY_Z + 1, Vector2(0, size * 0.25 * sc), 0.2)
+		var tw := fish.create_tween()
+		tw.tween_method(step, 0.0, 1.0, dur)
+		tw.tween_callback(func() -> void:
+			if is_instance_valid(s.held):
+				(s.held as Node2D).queue_free()
+			fish.queue_free())
+		)
+
+
+## The moment a fish grabs its arrow: the cells it leaves ripple, a glint and a few
+## stars pop where it was, and the arrow lifts off on a holder that follows the fish.
+func _fish_catch(a: ArrowPath, target: Vector2, carry_scale: float, tint: Color) -> Node2D:
+	if not is_instance_valid(a):
+		return null
+	var held := Node2D.new()
+	held.top_level = true
+	held.z_index = ArrowPath.FLY_Z + 1
+	held.position = target
+	add_child(held)
+	a.reparent(held, true)
+	a.z_index = 0
+	var n := a.cells.size()
+	for c in n:
+		_ripple(a.cells[c], c * 0.02, _palette.sample(float(c) / maxf(1.0, n - 1.0)), 1.0, a.dir)
+	GameData.play_sfx("slide", randf_range(1.15, 1.5))
+	var local := to_local(target)
+	_sprite_fx(ArrowPath.FX_FLARE, local, 0.0, CELL * 0.4, CELL * 1.5, 0.22, 0.5, Color(1, 1, 1, 0.85),
+		ArrowPath.FLY_Z)
+	for k in 4:
+		var dir := Vector2.from_angle(k * TAU / 4.0 + randf_range(-0.5, 0.5) + PI * 0.25)
+		_sprite_fx(FX_SPARKLE, local, 0.0, CELL * 0.25, CELL * randf_range(0.4, 0.55), randf_range(0.35, 0.45),
+			randf_range(-3.0, 3.0), tint.lightened(0.4) if k % 2 == 0 else Color(1, 1, 0.85),
+			ArrowPath.FLY_Z, dir * CELL * randf_range(0.6, 0.9), 0.4)
+	# Pops a touch bigger, then tucks in small enough for a fish to carry.
+	var pop := held.create_tween()
+	pop.tween_property(held, "scale", Vector2.ONE * 1.08, 0.06).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	pop.tween_property(held, "scale", Vector2.ONE * carry_scale, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN_OUT)
+	return held
 
 
 ## Final Volley: `n` rockets shoot up from the bottom of the board, alternating sides,

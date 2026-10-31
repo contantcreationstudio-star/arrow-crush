@@ -175,7 +175,7 @@ func _page_settings() -> void:
 ## Rules, helpers and rewards, one card per topic.
 func _page_help() -> void:
 	_title.text = "How to Play"
-	_text_card("[b]The goal: CRUSH![/b]\nClear every arrow from the board - and crush at least the number shown by the burst in the goal card on the way. Tap an arrow and it flies off the way it points. If the first arrow in its way has the [b]same colour[/b], both get [b]crushed[/b]. Balloons, targets and other pieces in the goal card must be done too.\n\nFlying out is fine for making room, but only crushes add to the crush count.")
+	_text_card("[b]The goal: CRUSH![/b]\nCrush at least the number of arrows shown by the burst in the goal card. Once every goal is done, flying fish carry off the arrows that are left. Tap an arrow and it flies off the way it points. If the first arrow in its way has the [b]same colour[/b], both get [b]crushed[/b]. Balloons, targets and other pieces in the goal card must be done too.\n\nFlying out is fine for making room, but only crushes add to the crush count.")
 	_text_card("[b]Crush chains[/b]\nA [b]different colour[/b] in the way means a bump and you lose a heart.\n\nA crushed arrow passes the hit on to the next same-colour arrow in its path - line them up for big domino chains! And when arrows slide into a gap, a same colour just ahead gets pulled in and crushed too ([b]MAGNET![/b]).")
 	_text_card("[b]Special arrows[/b]\nClear several arrows with one tap to earn a special arrow:\n"
 		+ "• 3 arrows - [b]Drill[/b]: smashes through its whole path\n"
@@ -187,7 +187,7 @@ func _page_help() -> void:
 	_text_card("[b]Helpers[/b]\n"
 		+ "• [b]Hint[/b] - watch a short video for 1 hint. Shows a safe arrow and its lane.\n"
 		+ "• [b]Undo[/b] - 2 per level. Takes back your last tap.\n"
-		+ "• [b]Power[/b] - tap Power, then any arrow: it smashes straight through. Earn power with 8 correct taps in a row, or by finishing a level with all 3 hearts (you can hold up to 5).\n\n"
+		+ "• [b]Power[/b] - tap Power, then any arrow: it smashes straight through. Earn one with 15 correct taps in a row (once per level), from daily rewards, or by watching a short video (you can hold up to 5).\n\n"
 		+ "Run out? Watch a short video to get more.")
 	_text_card("[b]Daily Challenge & streak[/b]\nA new maze every day - the same one for every player. Win at least one level a day to grow your streak and collect free hints and power. Missed a day? A video can save your streak.")
 	_text_card("[b]Tips[/b]\n"

@@ -11,7 +11,7 @@ const HELPERS_FROM_11 := 1
 # Booster buttons in the bottom bar (the drill is the original Super Power button).
 const BOOSTER_ICONS := {"bomb": "res://icons/bomb.svg", "laser": "res://icons/laser.svg", "rainbow": "res://icons/rainbow.svg"}
 const BOOSTER_BANNERS := {"drill": "SMASH", "bomb": "MEGA BOOM", "laser": "CROSS LASER", "rainbow": "COLOR WIPE"}
-const STREAK_FOR_POWER := 8   # correct taps in a row (no mistakes) that earn +1 power
+const STREAK_FOR_POWER := 15  # correct taps in a row (no mistakes) that earn +1 power (once per level)
 const POWER_COLOR := Color("#d97706")
 const TIP_TEXT := "Same colour arrows CRUSH! Chain 3+ for special arrows"
 const ZOOM_TIP_TEXT := "Pinch to zoom - double-tap to fit"
@@ -66,7 +66,7 @@ const FEATURE_INTROS := {
 	"ice": ["NEW: ICE SHIELD!", "Frozen arrows can't move. Shoot them or clear their neighbours to crack the ice"],
 	"mirrors": ["NEW: MIRRORS!", "Mirrors turn arrows 90 degrees - follow the lane!"],
 	"golden": ["GOLDEN ARROW!", "Fly the golden arrow out! Nothing can crush or blast it"],
-	"bonus": ["BONUS ARROW!", "Fly the coin arrow out before its count hits 0 for +15 coins!"],
+	"bonus": ["BONUS ARROW!", "Fly the coin arrow out before its count hits 0 for +5 coins!"],
 	"links": ["LINKED ARROWS!", "Chained arrows only fly out together - clear both lanes"],
 	"flips": ["FLIP ARROW!", "This arrow turns around after every move - tap it at the right time"],
 	"chain": ["CHAIN CRUSH!", "Same-colour arrows in a line? Tap the first one - the whole line crushes!"],
@@ -138,6 +138,7 @@ var undos_left := UNDOS_PER_LEVEL
 var hints_left := HINTS_PER_LEVEL
 var total_arrows := 0
 var streak := 0               # correct taps in a row since the last mistake
+var _streak_power_given := false  # the tap-streak power comes at most once per level
 var playing := false
 
 # What the player did this level - fed to GameData's behaviour model at the end.
@@ -513,6 +514,7 @@ func start_level(n: int) -> void:
 	undos_left = UNDOS_PER_LEVEL if level <= 10 else HELPERS_FROM_11
 	hints_left = HINTS_PER_LEVEL
 	streak = 0
+	_streak_power_given = false
 	taps = 0
 	mistakes = 0
 	hints_used = 0
@@ -1123,8 +1125,9 @@ func _on_moved(removed: int) -> void:
 			_add_time(CRUSH_BONUS)
 		else:
 			_add_time(ESCAPE_BONUS)
-	if streak >= _power_streak_need() and GameData.booster_unlocked("drill"):
+	if not _streak_power_given and streak >= _power_streak_need() and GameData.booster_unlocked("drill"):
 		streak = 0
+		_streak_power_given = true
 		if GameData.add_power(1):
 			GameData.play_sfx("charge")
 			_show_banner("+1 POWER!", POWER_COLOR)
@@ -1180,7 +1183,7 @@ func _crush_short() -> bool:
 
 
 func _crush_miss_text() -> String:
-	return "You crushed %d of %d arrows.\nCrush same colours - flying out doesn't count!" \
+	return "You crushed %d of %d arrows.\nOnly same-colour crushes count!" \
 		% [mini(maze.crushed, _crush_goal), _crush_goal]
 
 
@@ -1301,7 +1304,7 @@ func _win() -> void:
 	var wait := 0.0
 	if not maze.arrows.is_empty():
 		_show_banner_image(BANNER_ALL_GOALS)
-		wait = maze.release_all()
+		wait = maze.fish_carry_all()
 		_refresh_hud()
 	var bonus_hints := 0
 	if has_moves and moves_left > 0:
@@ -1354,8 +1357,6 @@ func _on_won(bonus_hints: int) -> void:
 		info.next_text = "Calendar"
 	else:
 		GameData.complete_level(level, lives)
-		if lives == MAX_HEARTS and GameData.add_power(1):
-			power += 1
 		info.title = "Level %d Complete" % level
 		info.picture_name = PictureShapes.name_for(level)
 		info.note = _adaptation_note(_record_result(true))
@@ -1783,29 +1784,20 @@ func _goals_done() -> bool:
 		# Level 1 is played to the end: the lessons run, then the player clears the board.
 		return maze.arrows.is_empty()
 	if _crush_goal > 0:
-		# Clear the board, crushing at least _crush_goal arrows on the way; balloons,
-		# targets, crates... on the board must be done too. (Ending as soon as the crush
-		# count was reached made levels far too short: chains reach it in a few taps.)
-		return maze.arrows.is_empty() and maze.crushed >= _crush_goal and _goal_sum().y == 0
+		# Crush at least _crush_goal arrows; balloons, targets, crates... on the board must
+		# be done too. Then the flying fish carry off whatever is left (no clearing by hand).
+		# The goal is a high share of the possible crushes so levels don't end too soon.
+		return maze.crushed >= _crush_goal and _goal_sum().y == 0
 	if _goal_sum().x == 0:
 		return maze.arrows.is_empty()
 	return _goal_sum().y == 0
 
 
-## The "arrows left" chip: on plain levels it is the goal; on crush levels it shows the
-## board still to clear - only when the card has room for it. The goal card holds at
-## most three chips: more makes the whole header wider than the phone (the board then
-## spreads off screen too).
+## The "arrows left" chip: only on plain levels, where clearing the board is the goal.
+## Crush levels end once their goals are done (the fish take the rest), so the arrows
+## left don't matter there.
 func _arrows_chip_shown() -> bool:
-	if _crush_goal <= 0:
-		return _goal_sum().x == 0
-	var chips := 1  # the crush chip
-	for pair: Array in _goal_counts().values():
-		if int(pair[0]) > 0:
-			chips += 1
-	if has_moves and has_clock:
-		chips += 1  # the stopwatch chip
-	return chips <= 2
+	return _crush_goal <= 0 and _goal_sum().x == 0
 
 
 ## Arrows to crush to win this level: a share of what a careful player can crush (see
@@ -1818,9 +1810,9 @@ func _crush_goal_for(data: Dictionary) -> int:
 	if most < 0:  # a board made before the crush goal existed
 		most = LevelGenerator.estimate_crushes(data.arrows, data.colors, data.cols, data.rows,
 			data.get("mirrors", {}), data.get("prisms", []))
-	var share := 0.65
+	var share := 0.8
 	if _daily < 0 and GameData.needs_help(level):
-		share = 0.5
+		share = 0.6
 	var n := floori(most * share)
 	return n if n >= 2 else 0
 
@@ -2324,7 +2316,7 @@ func _booster_bubble(kind: String, font: Font) -> Control:
 			GameData.play_sfx("coin")
 			_picked_boosters[kind] = true
 		else:
-			_bubble_tip(holder, "%d coins needed" % int(GameData.PRICES[kind]), font)
+			_bubble_tip(holder, "%d coins needed" % GameData.price_of(kind), font)
 		refresh.call()
 		holder.pivot_offset = holder.size / 2.0
 		var t := create_tween()
@@ -2558,9 +2550,9 @@ func _briefing_goals() -> Array:
 func _briefing_sentence(goals: Array, with_bonus: bool = true) -> String:
 	if not goals.is_empty() and goals[0][0] == "crush":
 		var n := int(goals[0][2])
-		var main := "Clear the board - crush %d on the way!" % n
+		var main := "Crush %d arrows!" % n
 		if not with_bonus:
-			return "Crush %d & clear the board" % n
+			return "Crush %d arrows" % n
 		if goals.size() == 1:
 			return main + "\nSame colours crush - flying out doesn't add to it."
 		var rest := _briefing_sentence(goals.slice(1))
@@ -2813,7 +2805,7 @@ func _offer_booster(kind: String) -> void:
 	var icon: String = "res://icons/bolt.svg" if kind == "drill" else BOOSTER_ICONS[kind]
 	var pop := _small_popup(icon, GameData.BOOSTER_NAMES[kind], GameData.BOOSTER_INFO[kind])
 	var close: Callable = pop.close
-	var price := int(GameData.PRICES[kind])
+	var price := GameData.price_of(kind)
 	var watch := _popup_button(pop.col, "+1 Free", "res://icons/play_ad.svg",
 		Color("#22c55e"), Color("#15803d"), Color.WHITE, pop.font)
 	var buy := _popup_button(pop.col, "Buy", "", GameSkin.GOLD, GameSkin.GOLD_LIP, GameSkin.GOLD_TEXT, pop.font, 92.0, price)
@@ -3152,6 +3144,7 @@ func _show_banner_image(tex: Texture2D, width: float = 560.0) -> void:
 	r.size = Vector2(width, h)
 	r.position = Vector2((view.x - width) / 2.0, view.y * 0.4 - h / 2.0)
 	r.pivot_offset = r.size / 2.0
+	r.z_index = ArrowPath.FLY_Z + 10  # over flying arrows and the fish that carry them off
 	banner.get_parent().add_child(r)
 	r.modulate.a = 0.0
 	r.scale = Vector2.ONE * 0.35
@@ -3312,7 +3305,7 @@ func _show_result(title: String, message: String, won: bool) -> void:
 	result_message.text = message
 	stars_row.visible = won
 	var fail_art := {"time": ["fail_time", "banner_time_up"], "moves": ["fail_moves", "banner_out_moves"],
-		"hearts": ["fail_hearts", "banner_out_hearts"]}
+		"hearts": ["fail_hearts", "banner_out_hearts"], "goals": ["fail_goals", "banner_missed"]}
 	var art: Array = fail_art.get(_fail, []) if not won else []
 	if _fail_art:
 		_fail_art.visible = not art.is_empty()
@@ -3338,6 +3331,14 @@ func _show_result(title: String, message: String, won: bool) -> void:
 	_reward_row.visible = false
 	next_button.visible = won and level < GameData.MAX_LEVELS
 	retry_button.text = "Replay" if won else "Retry"
+	# A missed goal has no rescue offer: Retry is the only way on, so it becomes the big
+	# green main button. Everywhere else it stays the quiet lilac one under the offers.
+	var heavy := retry_button.get_theme_font("font")
+	if not won and _fail == "goals":
+		retry_button.text = "Try Again"
+		GameSkin.button_3d(retry_button, Color("#22c55e"), Color("#15803d"), Color.WHITE, heavy)
+	else:
+		GameSkin.button_3d(retry_button, Color("#ede9fe"), GameSkin.CARD_LIP, GameSkin.VIOLET, heavy)
 	continue_button.visible = not won
 	for star: TextureRect in stars_row.get_children():
 		star.texture = STAR_OFF_TEX

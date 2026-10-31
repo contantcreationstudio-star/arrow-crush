@@ -8,20 +8,14 @@ extends Control
 ## Top bar: back, quiver, total stars, streak, Options. Bottom: Daily + big PLAY.
 
 const GAME_SCENE := "res://scenes/GameScene.tscn"
-const DAILY_SCENE := "res://scenes/Daily.tscn"
+const DAILY_SCENE := "res://scenes/Home.tscn"   # opens on its Daily tab (GameData.open_daily_tab)
 const STAR_TEXTURE := preload("res://icons/star.svg")
 const FLAME := preload("res://icons/flame.svg")
 const TITLE_FONT := preload("res://theme/fonts/LuckiestGuy-Regular.ttf")
 const MASCOT := preload("res://icons/fx/mascot_happy.png")
 const DECO_CLOUD := preload("res://icons/fx/deco_cloud.png")
-const DECO := {
-	"tree": [preload("res://icons/fx/deco_tree.png"), preload("res://icons/fx/deco_pine.png"), preload("res://icons/fx/deco_bush.png"),
-		preload("res://icons/fx/deco_mushroom.png")],
-	"bubble": [preload("res://icons/fx/deco_palm.png"), preload("res://icons/fx/deco_shell.png"), preload("res://icons/fx/deco_rock.png")],
-	"candy": [preload("res://icons/fx/deco_lollipop.png"), preload("res://icons/fx/deco_cane.png"), preload("res://icons/fx/deco_castle.png")],
-	"cactus": [preload("res://icons/fx/deco_cactus.png"), preload("res://icons/fx/deco_pyramid.png"), preload("res://icons/fx/deco_rock.png")],
-	"space": [preload("res://icons/fx/deco_planet.png"), preload("res://icons/fx/deco_crystal.png")],
-}
+## One hand-drawn Affinity prop per world (world_01.png .. world_25.png), never repeated.
+const WORLD_PROP := "res://icons/fx/world_%02d.png"
 const STAR_ON := Color("#fbbf24")
 const STAR_OFF := Color(0.39, 0.45, 0.55, 0.35)
 const INK := Color("#3b0764")
@@ -244,18 +238,18 @@ func _world_header(w: int, info: Dictionary, first: int, last: int, reached: boo
 	gloss.offset_bottom = 42
 	gloss.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	face.add_child(gloss)
-	# Affinity props peeking over the right edge (seeded per world, always the same).
+	# The world's own Affinity prop peeking over the right edge (each world has a different one).
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 900 + w * 31
-	var list: Array = DECO[info.deco]
-	for k in 2:
+	var path := WORLD_PROP % (w + 1)
+	if ResourceLoader.exists(path):
 		var prop := TextureRect.new()
-		prop.texture = list[(w + k) % list.size()]
+		prop.texture = load(path)
 		prop.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		prop.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
-		var s := 150.0 if k == 0 else 108.0
+		var s := 186.0
 		prop.size = Vector2(s, s * 1.1)
-		prop.position = Vector2(_w - SIDE * 2.0 - 36.0 - s - (12.0 if k == 0 else 128.0), -s * 0.38 + rng.randf_range(-6, 10))
+		prop.position = Vector2(_w - SIDE * 2.0 - 40.0 - s, -s * 0.4 + rng.randf_range(-4, 8))
 		prop.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		if not reached:
 			prop.modulate = Color(0.75, 0.78, 0.84)
@@ -681,6 +675,7 @@ func _build_daily_button() -> Button:
 		wiggle.tween_property(b, "rotation", 0.0, 0.08)
 	b.pressed.connect(func() -> void:
 		GameData.play_sfx("tap")
+		GameData.open_daily_tab = true
 		get_tree().change_scene_to_file(DAILY_SCENE))
 	return b
 

@@ -137,7 +137,7 @@ static func _late_world(level: int) -> Dictionary:
 			f.targets = 2 + roundi(tough * 2.0)
 		"crates":
 			f.crates = 4 + roundi(tough * 5.0)
-			f.crate_layers = 2 + int(tough > 0.5)
+			f.crate_layers = 1  # every crate breaks in one hit
 			f.erase("ice")
 		"ice":
 			f.ice = 3 + roundi(tough * 3.0)
@@ -188,7 +188,7 @@ static func _board_features(level: int) -> Dictionary:
 	if level in [3, 4]:
 		return {"color_order": true}
 	if level in [9, 10, 11]:
-		return {"crates": 2 + level - 9, "crate_layers": 1 if level < 11 else 2}
+		return {"crates": 2 + level - 9, "crate_layers": 1}
 	if level in [12, 13]:
 		return {"targets": 2}
 	if level in [15, 16]:
@@ -216,7 +216,7 @@ static func _board_features(level: int) -> Dictionary:
 		f.color_order = true
 	if level >= 18 and level % 5 == 0:
 		f.crates = clampi(3 + int(level / 15.0), 3, 9)
-		f.crate_layers = 2 if level < 40 else 3
+		f.crate_layers = 1
 	if level >= 18 and level % 6 == 3:
 		f.ice = clampi(2 + int(level / 20.0), 2, 6)
 		f.ice_layers = 1 if level < 35 else 2
@@ -282,15 +282,25 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 	elif harden_pre > 0.0:
 		min_len = 2
 		max_len = roundi(lerpf(float(max_len), 6.0, harden_pre))
+	# Boards get denser the further the player goes: from level 100 to 500 arrows get
+	# shorter (so many more of them fit on the same board) and gaps get filled.
+	var dense := density_for(level)
+	if dense > 0.0:
+		max_len = mini(roundi(float(max_len) * lerpf(1.0, 0.75, dense)), roundi(lerpf(17.0, 9.0, dense)))
+		min_len = mini(min_len, 3 if dense < 0.5 else 2)
+		wind *= lerpf(1.0, 0.45, dense)  # fewer of the extra-long wavy snakes
 	var len_range := Vector2i(min_len, maxi(min_len + 1, max_len))
 	var candidates := roundi(lerpf(2.0, 8.0, d))
 	if harden_pre > 0.0:
 		candidates = roundi(lerpf(float(candidates), 2.0, harden_pre))  # the labyrinth pass does the shaping
+	if dense > 0.0:
+		candidates = maxi(candidates, 4)  # more tries, so a well-filled board can be picked
 
 	# What the chosen maze should feel like.
 	var target_free := lerpf(6.0, 1.0, d)                                   # free arrows at start
 	var depth_weight := (0.5 + 2.0 * clampf((accuracy - 0.5) / 0.5, 0.0, 1.0)) * d  # careful players get long chains
-	var count_weight := 0.3 + 0.4 * maxf(pace, 0.0)
+	var count_weight := 0.3 + 0.4 * maxf(pace, 0.0) + 0.8 * dense
+	var cover_weight := 30.0 + 40.0 * dense
 
 	var best := {}
 	var best_score := -INF
@@ -301,6 +311,8 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 		var outline: Array = []
 		if level >= 2:
 			var seg := Vector2i(clampi(len_range.y - 2, 4, 9), clampi(len_range.y + 3, 6, 14))
+			if dense > 0.0:  # shorter edge arrows too, so the outline doesn't eat the board
+				seg = Vector2i(clampi(seg.x - roundi(2.0 * dense), 3, 9), clampi(seg.y - roundi(6.0 * dense), 5, 14))
 			outline = _contour_arrows(mask, 1 if cols < 13 else 2, seg, rng)
 		var tiles := _tile(mask, len_range, rng, wind, outline)
 		var cand_mirrors := _carve_mirrors(tiles, int(features.get("mirrors", 0)), rng)
@@ -310,7 +322,7 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 		for a: Array in tiles:
 			used += a.size()
 		var coverage := float(used) / maxf(1.0, mask.size())
-		var score := coverage * 30.0 - absf(float(stats.free_at_start) - target_free) * 6.0 \
+		var score := coverage * cover_weight - absf(float(stats.free_at_start) - target_free) * 6.0 \
 			+ float(stats.depth) * depth_weight + tiles.size() * count_weight * d
 		if score > best_score:
 			best_score = score
@@ -412,6 +424,11 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 
 ## How hard the labyrinth pass pushes (0..1). Nothing before level 20, then it ramps
 ## in over levels 20-35, scaled by the level's difficulty (spikes push harder).
+## How packed the board is past level 100: 0 up to level 100, rising to 1 at level 500.
+static func density_for(level: int) -> float:
+	return clampf((level - 100) / 400.0, 0.0, 1.0)
+
+
 static func hardening_for(level: int, d: float) -> float:
 	var ramp := clampf((level - 20) / 15.0, 0.0, 1.0)
 	if level > 100:

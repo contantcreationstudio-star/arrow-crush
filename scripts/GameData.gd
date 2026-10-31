@@ -5,7 +5,7 @@ const SAVE_PATH := "user://arrow_crush.cfg"
 const MAX_LEVELS := 500
 const MIX_RATE := 22050
 const MAX_POWER := 5
-const DIFFICULTY_VERSION := 4  # bump when the difficulty curve changes
+const DIFFICULTY_VERSION := 5  # bump when the difficulty curve changes
 const MAX_BOOSTER := 9          # per booster kind
 ## Level each power unlocks at. New players start with Undo, Hint and the Drill only;
 ## the others arrive one by one, each with a couple free to try.
@@ -21,17 +21,22 @@ const BOOSTER_INFO := {"drill": "Smashes through every arrow in its path",
 	"bomb": "Blows up a big 5x5 area around the arrow",
 	"laser": "Clears the whole row and column",
 	"rainbow": "Removes every arrow of that colour", "hint": "Shows an arrow you can move"}
-const PRICES := {"hint": 60, "drill": 150, "bomb": 200, "laser": 250, "rainbow": 350}
-const CONTINUE_COINS := 120     # +moves / +time / +heart after failing, paid with coins
-const AD_COINS := 100           # rewarded video in the shop
+# Coins are a slow saving-up path; one rewarded video always beats them (1 video = 1 hint or
+# 1 booster, the same thing ~10-30 won levels of coins buy). Keeps videos worth watching.
+const PRICES := {"hint": 150, "drill": 300, "bomb": 450, "laser": 500, "rainbow": 700}  # first buy of the day
+# Each buy doubles that item's price (150 -> 300 -> 600 ...); back to the start price at local midnight.
+const CONTINUE_COINS := 200     # +moves / +time / +heart after failing, paid with coins
+const AD_COINS := 50            # rewarded video in the shop (less than a video straight for a hint/booster)
 const COIN_VIDEOS_PER_DAY := 5  # free-coin videos per day (keeps coins worth earning and ad traffic natural)
 const START_COINS := 150
-const COINS_WIN := 20           # every win ...
-const COINS_PER_STAR := 10      # ... plus per star ...
-const COINS_PER_GOAL := 2       # ... plus per balloon layer popped / target hit / goal piece
-const COINS_DAILY := 60         # finishing a daily challenge (first time)
+const COINS_WIN := 10           # every win ...
+const COINS_PER_STAR := 2       # ... plus per star ...
+const COINS_PER_GOAL := 0       # ... plus per balloon layer popped / target hit / goal piece
+const COINS_DAILY := 25         # finishing a daily challenge (first time)
 var _coin_video_day := -1       # local day of the free-coin videos counted below
 var _coin_videos := 0           # free-coin videos watched on that day
+var _buys_day := -1             # local day of the coin buys counted below
+var _buys := {}                 # item -> times bought with coins on that day (doubles its price)
 ## Quiver: arrows the player spends to try levels (5 max, one refills every 30 minutes).
 ## A lost level - or leaving one after the first tap - costs one. The first levels,
 ## the tutorial and the daily challenge are free.
@@ -84,6 +89,7 @@ var bonus_hints := 0            # hint bank (streak rewards), used after a level
 var daily_done := {}            # UTC day -> stars of a finished daily challenge
 var daily_unlocked := {}        # UTC day -> true for past days opened with a video
 var daily_day := -1             # session only: daily challenge being played (-1 = levels)
+var open_daily_tab := false     # session only: Home opens on its Daily tab (the map's Daily button)
 var map_seen_level := 0         # session only: level the map pin last stood on
 var quit_notice := ""           # session only: shown on Home after a level was abandoned by closing the app
 
@@ -166,6 +172,7 @@ func save_game() -> void:
 	cfg.set_value("progress", "power_charges", power_charges)
 	cfg.set_value("progress", "coins", coins)
 	cfg.set_value("progress", "coin_videos", [_coin_video_day, _coin_videos])
+	cfg.set_value("progress", "coin_buys", [_buys_day, _buys])
 	cfg.set_value("progress", "boosters", boosters)
 	cfg.set_value("progress", "boosters_seen", boosters_seen)
 	cfg.set_value("progress", "quiver", quiver)
@@ -215,6 +222,10 @@ func load_game() -> void:
 	if cv.size() == 2:
 		_coin_video_day = int(cv[0])
 		_coin_videos = int(cv[1])
+	var cb: Array = cfg.get_value("progress", "coin_buys", [-1, {}])
+	if cb.size() == 2:
+		_buys_day = int(cb[0])
+		_buys = cb[1]
 	var saved_boosters: Dictionary = cfg.get_value("progress", "boosters", {})
 	for kind in boosters:
 		boosters[kind] = clampi(int(saved_boosters.get(kind, 0)), 0, MAX_BOOSTER)
@@ -271,43 +282,62 @@ func best_stars(level: int) -> int:
 
 # --- Behaviour-driven difficulty -----------------------------------------------------------
 
-## The ramp across all 100 levels, front-loaded like match-3 games: about 1-7 Easy,
-## 8-22 Normal, 23-50 Hard, 51-100 Super Hard (plus the spikes below). The player's
-## skill nudges it.
+## Difficulty range of each tier (LevelGenerator.tier_for_difficulty uses the same cut-offs).
+const TIER_BANDS: Array[Vector2] = [Vector2(0.05, 0.24), Vector2(0.25, 0.49), Vector2(0.5, 0.74), Vector2(0.75, 0.98)]
+
+## The rhythm of every 10 levels, like match-3 games: a breather (Easy) after each hard
+## beat, Normal in between, Hard on every 5th level and Super Hard on every 10th.
+##   x1 Easy, x2-x4 Normal, x5 Hard, x6 Easy, x7-x9 Normal, x0 Super Hard.
+## Levels 1-10 are all Easy except 5 and 10 (Normal); up to 30 the 10th is only Hard;
+## after 200 the 9th turns Hard too. 0 Easy, 1 Normal, 2 Hard, 3 Super Hard.
+func level_tier(level: int) -> int:
+	if level <= 10:
+		return 1 if level == 5 or level == 10 else 0
+	var r := level % 10
+	if r == 0:
+		return 3 if level > 30 else 2
+	if r == 5:
+		return 2
+	if r == 1 or r == 6:
+		return 0
+	if r == 9 and level > 200:
+		return 2
+	return 1
+
+
+## A level's difficulty: its tier's band, and how far along the 500 levels it is decides
+## where in the band (so Normal at level 400 is tougher than Normal at level 40, but both
+## still feel Normal). The player's skill nudges it inside the band.
 func base_difficulty(level: int) -> float:
-	if level > 100:
-		# Worlds 6-25 (101-500): every world is its own sawtooth - it starts easy-ish and
-		# climbs to hard by its last level (the 5th / 10th level spikes come on top). Each
-		# world starts and ends a little higher than the one before.
-		var k := (level - 101) % 20
-		var far := clampf((level - 101) / 400.0, 0.0, 1.0)
-		return lerpf(lerpf(0.28, 0.42, far), lerpf(0.62, 0.8, far), k / 19.0)
-	var t := clampf((level - 1) / 99.0, 0.0, 1.0)  # the ramp spans 1-100
-	return lerpf(0.06, 1.0, pow(t, 0.55))
+	var band: Vector2 = TIER_BANDS[level_tier(level)]
+	var p := pow(clampf((level - 1) / 499.0, 0.0, 1.0), 0.6)
+	return lerpf(band.x, band.y, p)
 
 
-## Rhythm on top of the player's own curve: every 5th level is a hard spike and
-## every 10th a super-hard one (the "hard level" beats of match-3 games).
+## Hard beats (Hard / Super Hard levels): fewer spare moves, a slightly faster clock,
+## and a flame on the map. Positive on those levels only.
 func level_spike(level: int) -> float:
-	if level < 5:
-		return 0.0
-	if level % 10 == 0:
-		return 0.22
-	if level % 5 == 0:
-		return 0.14
+	match level_tier(level):
+		3:
+			return 0.22
+		2:
+			return 0.14
 	return 0.0
 
 
-## Difficulty for a level: locked once played. Otherwise the level's place on the
-## 1..100 ramp, plus its spike, nudged by the player's skill (a strong player gets up
-## to +0.1, a struggling one up to -0.05), so later levels are always harder.
+## Difficulty for a level: locked once played. Otherwise its tier band (level_tier) and
+## place along the 500 levels, nudged by the player's skill (a strong player gets up to
+## +0.1, a struggling one up to -0.05) without leaving the tier.
 func difficulty_for(level: int) -> float:
 	if level_difficulty.has(level):
 		return float(level_difficulty[level])
 	var nudge := skill * (0.1 if skill > 0.0 else 0.05)
 	if comeback:
 		nudge -= 0.12  # back after days away: start again with an easy win
-	return clampf(base_difficulty(level) + nudge + level_spike(level), 0.0, 1.0)
+	# Stays inside its tier, so the label always matches (a comeback may drop one step).
+	var band: Vector2 = TIER_BANDS[level_tier(level)]
+	var lo := band.x - (0.12 if comeback else 0.0)
+	return clampf(base_difficulty(level) + nudge, maxf(0.02, lo), band.y)
 
 
 ## A player who could use a hand: struggling overall, or stuck on this level.
@@ -512,8 +542,9 @@ func claim_unlock(kind: String) -> void:
 ## Buys one booster with coins. Returns false if there are not enough coins or the stock is full.
 func buy_booster(kind: String) -> bool:
 	var cap := MAX_POWER if kind == "drill" else (99 if kind == "hint" else MAX_BOOSTER)
-	if not booster_unlocked(kind) or booster_count(kind) >= cap or not spend_coins(int(PRICES[kind])):
+	if not booster_unlocked(kind) or booster_count(kind) >= cap or not spend_coins(price_of(kind)):
 		return false
+	_buys[kind] = int(_buys.get(kind, 0)) + 1   # next one costs double (today)
 	add_booster(kind, 1)
 	return true
 
@@ -526,6 +557,7 @@ func reset_all_data() -> void:
 	stars = {}
 	power_charges = 1
 	coins = START_COINS
+	_buys = {}
 	boosters = {"bomb": 0, "laser": 0, "rainbow": 0}
 	boosters_seen = []
 	quiver = QUIVER_MAX
@@ -562,6 +594,15 @@ func reset_all_data() -> void:
 # --- Days, streak and daily challenge -------------------------------------------------------
 
 ## Day number in the player's own time zone (for the streak).
+## What one more of `kind` costs right now: the start price, doubled for every one
+## bought today (x1, x2, x4, x8 ...). The count resets at local midnight.
+func price_of(kind: String) -> int:
+	if _buys_day != local_day():
+		_buys_day = local_day()
+		_buys = {}
+	return int(PRICES[kind]) << mini(int(_buys.get(kind, 0)), 8)
+
+
 ## Free-coin videos the player may still watch today (resets at local midnight).
 func coin_videos_left() -> int:
 	if _coin_video_day != local_day():

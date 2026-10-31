@@ -51,7 +51,8 @@ var _hero_button: Button
 
 func _ready() -> void:
 	GameData.set_music_pitch(1.0)
-	var start_tab := 1 if GameData.daily_day >= 0 else 0  # back from a daily maze
+	var start_tab := 1 if GameData.daily_day >= 0 or GameData.open_daily_tab else 0  # back from a daily maze / map's Daily button
+	GameData.open_daily_tab = false
 	GameData.daily_day = -1
 	GameData.refresh_quiver()
 
