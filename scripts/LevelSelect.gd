@@ -136,6 +136,10 @@ func _build_map() -> void:
 	for w in last_world + 1:
 		_list.add_child(_world_card(w, w <= open_until))
 	_list.add_child(_soon_card())
+	# A finger drag anywhere on the map (cards, headers, tiles) must reach the scroll:
+	# panels stop touches by default, so on phones the map only scrolled in the gaps.
+	TouchScroll.setup(_scroll)
+	TouchScroll.guard(_scroll)
 
 
 ## One world: the coloured header and (when unfolded) its grid of level tiles.
