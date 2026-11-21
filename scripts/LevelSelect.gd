@@ -71,7 +71,10 @@ func _ready() -> void:
 		_hop(hop_from)
 	else:
 		_start_pulse(_current)
-	_check_streak()
+	if not _check_streak() and hop_from > 0 and RatePopup.is_due():
+		await get_tree().create_timer(1.2).timeout  # let the pin finish its hop first
+		if is_inside_tree():
+			RatePopup.ask(self)
 
 
 # --- Map -------------------------------------------------------------------------------------
@@ -764,10 +767,13 @@ func _burst(at: Vector2) -> void:
 # --- Actions ---------------------------------------------------------------------------------
 
 ## Missed a day? Offer to save the streak with a video (or tell the player it ended).
-func _check_streak() -> void:
+## Shows the "streak broken" popup when needed. Returns true when it did.
+func _check_streak() -> bool:
 	var info := GameData.check_streak()
 	if not info.is_empty():
 		StreakPopup.show_broken(self, info).closed.connect(get_tree().reload_current_scene)
+		return true
+	return false
 
 
 func _on_level_pressed(n: int) -> void:

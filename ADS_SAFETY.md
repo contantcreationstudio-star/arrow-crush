@@ -51,7 +51,7 @@ showing many ads. To stay safe:
   - at most 5 interstitials and 25 rewarded videos per player per day
   - the shop's free-coin video (+50 coins) at most 5 times per day (GameData.COIN_VIDEOS_PER_DAY)
   - input is held 0.6 s before an ad opens, so a tap on "Next" can't become an ad click
-  - ads are limited to content rating G in the code as well
+  - ads are limited to content rating PG in the code as well (same as the dashboard)
 
 - **Closed testing (12 testers, 14 days):** that build must use test ads too.
 - **No text that asks players to watch or click ads to "support us".**
@@ -81,7 +81,7 @@ where the player left it. The file is stored **only on the player's own phone**
 
 ### हिंदी में छोटा सार
 
-- AdMob → Blocking controls: content rating **G**, गलत कैटेगरी (जुआ, डेटिंग, नकली दवा
+- AdMob → Blocking controls: content rating **PG**, गलत कैटेगरी (जुआ, डेटिंग, नकली दवा
   वगैरह) ब्लॉक करें, और हर हफ़्ते *Ad review center* में नकली "वायरस/बैंक" वाले ऐड ब्लॉक करें।
 - Interstitial ad unit में frequency cap लगाएँ। चाहें तो सिर्फ़ image ads रखें, लंबे वीडियो नहीं।
 - गेम में पहले से ये नियम हैं: गेम खोलने पर कोई ऐड नहीं, पहले 14 लेवल ad-free, फिर 5 लेवल में

@@ -57,6 +57,13 @@ var _done := false
 var _logo: TitleLogo
 var _card: Control
 var _backdrop: Control
+var _banner := false  # a banner ad sits under the card (see AdManager.show_win_banner)
+const BANNER_GAP := 50.0  # clear space kept between REPLAY and the banner
+
+
+func _exit_tree() -> void:
+	if _banner:
+		AdManager.hide_win_banner()
 
 
 static func open(parent: Node, info: Dictionary) -> VictoryScreen:
@@ -99,6 +106,9 @@ func _build(info: Dictionary) -> void:
 
 	_center = CenterContainer.new()
 	_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_banner = bool(info.get("banner", false))
+	if _banner:  # the card centres in the space above the bottom banner
+		_center.offset_bottom = -(AdManager.BANNER_RESERVE + GameData.safe_insets().y)
 	_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_center)
 	_content = VBoxContainer.new()
@@ -326,6 +336,16 @@ func _build(info: Dictionary) -> void:
 	await get_tree().process_frame
 	if not is_inside_tree():
 		return
+	if _banner:
+		# Short phones: shrink the whole card a little so REPLAY keeps a clear gap above the
+		# banner (a button right next to an ad invites accidental clicks).
+		var room := _center.size.y - 2.0 * BANNER_GAP
+		if _content.size.y > room:
+			_content.pivot_offset = _content.size / 2.0
+			_content.scale = Vector2.ONE * maxf(room / _content.size.y, 0.7)
+			await get_tree().process_frame
+			if not is_inside_tree():
+				return
 	_rays.position = _star_slot.get_global_rect().get_center()
 	_rays.visible = false  # the backdrop has its own rays now
 	_glow.position = _rays.position - _glow.size / 2.0
@@ -422,6 +442,8 @@ func _play_timeline(banner: Control, pill: Control, stars_on: Array[TextureRect]
 			_replay.disabled = false)
 		_home.create_tween().tween_property(_home, "modulate:a", 1.0, 0.3))
 	_at(btn_at + 0.7, _idle_next)
+	if _banner:
+		_at(btn_at + 0.9, AdManager.show_win_banner)  # after the buttons, so it never jumps under a finger
 
 
 func _land_star(star: TextureRect, i: int) -> void:

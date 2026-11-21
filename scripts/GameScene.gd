@@ -73,6 +73,8 @@ const FEATURE_INTROS := {
 	"prism": ["NEW: PRISM ARROW!", "Any colour crushes a prism - and the chain carries on in the prism's colour!"],
 	"wavy": ["SNAKE ARROWS!", "Long wavy arrows! Only the head decides where it flies - the body just follows"],
 	"creep": ["ARROWS ON THE MOVE!", "Arrows slide into gaps - and a same colour just ahead gets pulled in and CRUSHED!"],
+	"giant": ["GIANT ARROW!", "A huge arrow is coiled up! Clear the arrows around it so it can unwind and fly out"],
+	"dense": ["PACKED BOARD!", "Not a single gap! Find the arrows that can fly and open the board up"],
 }
 const GOAL_DONE_COLOR := Color("#16a34a")
 const GOAL_INK := Color("#3b0764")      # numbers on the cream goal card
@@ -491,7 +493,7 @@ func _check_streak() -> void:
 
 
 func _exit_tree() -> void:
-	get_tree().quit_on_go_back = true  # other screens: the phone's back key closes the app as before
+	get_tree().quit_on_go_back = false  # other screens: GameData sends the app to the background instead
 	Engine.time_scale = 1.0  # never leave a hit-stop running when the scene closes
 	_join_pregen()  # a background maze build must finish before the scene goes away
 
@@ -1376,6 +1378,7 @@ func _on_won(bonus_hints: int) -> void:
 func _open_victory(info: Dictionary) -> void:
 	if _victory:
 		_victory.queue_free()
+	info.banner = AdManager.wants_win_banner(level) and not _is_tutorial_level
 	_victory = VictoryScreen.open(self, info)
 	_victory.next_pressed.connect(func(_at: Vector2) -> void: _on_next_level())
 	_victory.replay_pressed.connect(func(at: Vector2) -> void: _transition_to(level, false, at))
@@ -1402,6 +1405,7 @@ func _transition_to(n: int, with_ad: bool, at: Vector2 = Vector2(-1, -1)) -> voi
 	if _switching:
 		return
 	_switching = true
+	AdManager.hide_win_banner()  # the banner is a phone view on top of everything: gone before the curtain
 	var tr := LevelTransition.make(self)
 	await tr.close(at)
 	if _victory:
@@ -1830,6 +1834,8 @@ func _introduce_new_piece(data: Dictionary) -> String:
 		"chain": not data.get("jackpots", []).is_empty(), "prism": not data.get("prisms", []).is_empty(),
 		"wavy": float(data.get("wind", 0.0)) >= 0.5,
 		"creep": int(data.get("creep", 0)) > 0,
+		"giant": data.get("plan", "") == "giant",
+		"dense": data.get("plan", "") == "dense",
 	}
 	for kind: String in FEATURE_INTROS:
 		if present[kind] and not GameData.seen_features.has(kind):

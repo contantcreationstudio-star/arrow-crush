@@ -142,6 +142,10 @@ func _page_main() -> void:
 		_row("opt_about", Color("#3b82f6"), "About Game", show_page.bind("about")),
 		_row("opt_mail", Color("#f59e0b"), "Contact Us", _contact),
 	])
+	_card([
+		_row("opt_star", Color("#f59e0b"), "Rate Arrow Crush", AppLinks.rate),
+		_row("opt_share", Color("#22c55e"), "Share with Friends", AppLinks.share),
+	])
 	_section("PRIVACY & LEGAL")
 	_card([
 		_row("opt_policy", Color("#0ea5e9"), "Privacy Policy", LegalText.open_page.bind("privacy_policy")),

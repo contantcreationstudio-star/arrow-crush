@@ -258,6 +258,16 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 		# Pictures read best with room: never below 12 cells (14 after the first worlds).
 		var room := 12 if level < 20 else 14
 		cols = clampi(maxi(cols, maxi(int(recipe.min_cols), room)), 8, MAX_COLS)
+	# What kind of board this level is (LevelDirector): huge spiral arrows, packed, or normal.
+	var plan := LevelDirector.plan_for(level)
+	if plan == "giant":
+		if LevelDirector.giant_board(level) and not recipe.has("bitmap"):
+			recipe = ArrowPatterns.giant_arrow_recipe(level)  # the board is one big arrow
+		# Room for a spiral; a giant-arrow board takes the full width so the arrow reads.
+		var room := MAX_COLS if recipe.has("giant_arrow") else (12 if level < 20 else 15)
+		cols = clampi(maxi(cols, room), 8, MAX_COLS)
+	elif plan == "dense":
+		cols = clampi(maxi(cols, 14 if level < 50 else 16), 8, MAX_COLS)  # a big, crowded board
 	var rows := roundi(cols * 1.15) + 1
 	var shape := "shape-%d" % level
 	var mask := _make_mask(recipe, cols, rows)
@@ -289,12 +299,19 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 		max_len = mini(roundi(float(max_len) * lerpf(1.0, 0.75, dense)), roundi(lerpf(17.0, 9.0, dense)))
 		min_len = mini(min_len, 3 if dense < 0.5 else 2)
 		wind *= lerpf(1.0, 0.45, dense)  # fewer of the extra-long wavy snakes
+	if plan == "dense":
+		# Packed board: lots of short arrows, the gaps filled afterwards.
+		min_len = 2
+		max_len = mini(max_len, 6)
+		wind *= 0.5
 	var len_range := Vector2i(min_len, maxi(min_len + 1, max_len))
 	var candidates := roundi(lerpf(2.0, 8.0, d))
 	if harden_pre > 0.0:
 		candidates = roundi(lerpf(float(candidates), 2.0, harden_pre))  # the labyrinth pass does the shaping
 	if dense > 0.0:
 		candidates = maxi(candidates, 4)  # more tries, so a well-filled board can be picked
+	if plan != "normal":
+		candidates = maxi(candidates, 8 if plan == "giant" else 5)  # BoardCritic picks the best fit
 
 	# What the chosen maze should feel like.
 	var target_free := lerpf(6.0, 1.0, d)                                   # free arrows at start
@@ -307,23 +324,50 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 	for k in candidates:
 		var rng := RandomNumberGenerator.new()
 		rng.seed = level * 1009 + k * 7 + roundi(d * 20.0) * 31 + 13
-		# The outline first (from level 2): the arrows themselves draw the picture's edge.
+		# Giant levels: the huge spirals go down first, while the board is still empty.
+		var spirals: Array = []
+		var edge_mask := mask
+		var arrow_board := recipe.has("giant_arrow")
+		if plan == "giant" and not arrow_board:
+			var sp := LevelDirector.spirals_for(level, cols, d)
+			spirals = ArrowPatterns.mega_spirals(mask, {}, sp.x, sp.y, sp.z, rng)
+			edge_mask = mask.duplicate()
+			for a: Array in spirals:
+				for c: Vector2i in a:
+					edge_mask.erase(c)
+		# The outline next (from level 2): the arrows themselves draw the picture's edge.
 		var outline: Array = []
 		if level >= 2:
 			var seg := Vector2i(clampi(len_range.y - 2, 4, 9), clampi(len_range.y + 3, 6, 14))
 			if dense > 0.0:  # shorter edge arrows too, so the outline doesn't eat the board
 				seg = Vector2i(clampi(seg.x - roundi(2.0 * dense), 3, 9), clampi(seg.y - roundi(6.0 * dense), 5, 14))
-			outline = _contour_arrows(mask, 1 if cols < 13 else 2, seg, rng)
-		var tiles := _tile(mask, len_range, rng, wind, outline)
+			var rings := 1 if cols < 13 or plan == "giant" else 2
+			outline = _contour_arrows(edge_mask, rings, seg, rng)
+		if arrow_board:
+			# Giant-arrow board: its edge is drawn first so the big arrow reads, then a
+			# spiral coils inside the shaft.
+			var taken := {}
+			for a: Array in outline:
+				for c: Vector2i in a:
+					taken[c] = true
+			var sp := LevelDirector.spirals_for(level, cols, d)
+			spirals = ArrowPatterns.mega_spirals(mask, taken, sp.x, sp.y, sp.z, rng)
+		var pre := spirals + outline
+		var tiles := _tile(mask, len_range, rng, wind, pre)
 		var cand_mirrors := _carve_mirrors(tiles, int(features.get("mirrors", 0)), rng)
 		_make_solvable(tiles, cols, rows, rng, cand_mirrors)
+		if plan != "normal":
+			ArrowPatterns.fill_gaps(tiles, mask, cols, rows, cand_mirrors, len_range.y + 2, rng)
 		var stats := _analyse(tiles, cols, rows, cand_mirrors)
 		var used := 0
 		for a: Array in tiles:
 			used += a.size()
 		var coverage := float(used) / maxf(1.0, mask.size())
 		var score := coverage * cover_weight - absf(float(stats.free_at_start) - target_free) * 6.0 \
-			+ float(stats.depth) * depth_weight + tiles.size() * count_weight * d
+			+ float(stats.depth) * depth_weight + tiles.size() * count_weight * d \
+			+ BoardCritic.score(plan, BoardCritic.measure(tiles, mask))
+		if plan == "giant":
+			score += BoardCritic.wait_bonus(tiles, _rounds(tiles, cols, rows, cand_mirrors))
 		if score > best_score:
 			best_score = score
 			best = {"arrows": tiles, "free_at_start": stats.free_at_start, "depth": stats.depth, "mirrors": cand_mirrors}
@@ -400,7 +444,7 @@ static func generate(level: int, difficulty: float, style: Dictionary = {}, feat
 		order = _color_order(colors, arrows, mirrors, cols, rows, rng2, busy)
 
 	return {
-		"cols": cols, "rows": rows, "mask": mask, "shape": shape,
+		"cols": cols, "rows": rows, "mask": mask, "shape": shape, "plan": plan,
 		"tier": tier_for_difficulty(d), "difficulty": d,
 		"arrows": arrows, "colors": colors, "free_at_start": best.free_at_start, "depth": best.depth,
 		"mirrors": mirrors, "balloons": balloons, "targets": targets,

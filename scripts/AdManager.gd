@@ -19,17 +19,25 @@ extends Node
 ##     still gets the reward - a stuck ad must never cost them the level.
 ##   - If a rewarded video can't load (offline, no fill), say so kindly; don't loop.
 ##   - "Personalised ads" OFF in Privacy Preferences = non-personalised ads (npa=1).
-##   - In the AdMob dashboard (see ADS_SAFETY.md): max content rating G, block sensitive
+##   - In the AdMob dashboard (see ADS_SAFETY.md): max content rating PG, block sensitive
 ##     categories, check the Ad review center, no unknown mediation networks.
 
 signal ad_started
 signal ad_finished
 
-## Google's DEMO ad units: they always show test ads and are safe to tap.
-## Before publishing, replace them with your own ad unit IDs from the AdMob dashboard,
-## and the App ID in Project Settings > AdMob > Android.
-const REWARDED_UNIT_ID := "ca-app-pub-3940256099942544/5224354917"
-const INTERSTITIAL_UNIT_ID := "ca-app-pub-3940256099942544/1033173712"
+## Arrow Crush's own AdMob ad units (real ads). The App ID lives in Project Settings >
+## AdMob > Android (ca-app-pub-5881046917519667~3763301282). Never tap these on your own
+## phone - add it to TEST_DEVICE_IDS below so it only ever gets test ads.
+const REWARDED_UNIT_ID := "ca-app-pub-5881046917519667/5100433682"      # Rewarded_Hint
+const INTERSTITIAL_UNIT_ID := "ca-app-pub-5881046917519667/1412470119"  # Interstitial_Levels
+const BANNER_UNIT_ID := "ca-app-pub-5881046917519667/2290437514"        # Banner_WinCard (adaptive)
+
+## A small banner along the bottom of the "Level Complete" card only - never during play,
+## never on menus. The card leaves BANNER_RESERVE free above it, so the banner sits well
+## away from NEXT / REPLAY and a tap meant for a button can't land on the ad.
+const BANNERS_ENABLED := true
+const BANNER_FROM_LEVEL := 5      # the first levels stay ad-free
+const BANNER_RESERVE := 150.0     # game pixels kept clear at the bottom (banner + gap)
 
 ## Master switch for interstitials (the ads between levels). OFF for the first release:
 ## a new AdMob account with only friends and testers playing risks "invalid traffic", and
@@ -71,6 +79,8 @@ var _loading_interstitial := false
 var _earned := false           # the player finished the current rewarded video
 var _caps_day := ""            # date the counts below belong to (local, YYYY-MM-DD)
 var _shown_today := {"interstitial": 0, "rewarded": 0}
+var _banner: AdView            # the win-card banner while it is up (real ads)
+var _banner_demo: CanvasLayer  # its stand-in on desktop
 
 
 func _ready() -> void:
@@ -218,9 +228,10 @@ func _on_consent_error(_error: FormError) -> void:
 func _start_ads() -> void:
 	if _ready_for_ads:
 		return
-	# Family-friendly ads only, and test ads on our own phones (see TEST_DEVICE_IDS).
+	# Clean ads only (PG at most - matches the AdMob dashboard), and test ads on our own
+	# phones (see TEST_DEVICE_IDS). The stricter of this and the dashboard always wins.
 	var config := RequestConfiguration.new()
-	config.max_ad_content_rating = RequestConfiguration.MAX_AD_CONTENT_RATING_G
+	config.max_ad_content_rating = RequestConfiguration.MAX_AD_CONTENT_RATING_PG
 	config.test_device_ids = TEST_DEVICE_IDS.duplicate()
 	MobileAds.set_request_configuration(config)
 	var listener := OnInitializationCompleteListener.new()
@@ -308,7 +319,57 @@ func _count(kind: String) -> void:
 	cfg.save(CAPS_PATH)
 
 
+## True when the win card of `level` gets a banner (the card then keeps BANNER_RESERVE free).
+func wants_win_banner(level: int) -> bool:
+	return BANNERS_ENABLED and level >= BANNER_FROM_LEVEL and (_ready_for_ads or not _real)
+
+
+## Puts the banner at the bottom of the screen (the win card is up).
+func show_win_banner() -> void:
+	hide_win_banner()
+	if not _real:
+		_demo_banner()
+		return
+	if not _ready_for_ads:
+		return
+	var size := AdSize.get_current_orientation_anchored_adaptive_banner_ad_size(AdSize.FULL_WIDTH)
+	_banner = AdView.new(BANNER_UNIT_ID, size, AdPosition.BOTTOM)
+	_banner.load_ad(_request())
+
+
+## Removes the banner (the win card closed, or a full-screen ad is about to start).
+func hide_win_banner() -> void:
+	if _banner:
+		_banner.destroy()
+		_banner = null
+	if is_instance_valid(_banner_demo):
+		_banner_demo.queue_free()
+	_banner_demo = null
+
+
+func _demo_banner() -> void:
+	_banner_demo = CanvasLayer.new()
+	_banner_demo.layer = 90
+	get_tree().root.add_child(_banner_demo)
+	var bar := ColorRect.new()
+	bar.color = Color("#f8fafc")
+	bar.anchor_left = 0.0
+	bar.anchor_right = 1.0
+	bar.anchor_top = 1.0
+	bar.anchor_bottom = 1.0
+	bar.offset_top = -100.0 - GameData.safe_insets().y
+	bar.offset_bottom = -GameData.safe_insets().y
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_banner_demo.add_child(bar)
+	var l := _label("Test Ad  ·  banner", 26, Color("#64748b"))
+	l.set_anchors_preset(Control.PRESET_FULL_RECT)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	bar.add_child(l)
+
+
 func _begin_ad() -> int:
+	hide_win_banner()  # a full-screen ad never sits on top of a banner
 	_showing = true
 	_ad_id += 1
 	ad_started.emit()

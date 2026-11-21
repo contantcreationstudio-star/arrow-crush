@@ -44,7 +44,7 @@ const QUIVER_MAX := 5
 const QUIVER_REFILL_SEC := 1800
 const QUIVER_FREE_UNTIL := 10
 ## Replace these with your real hosted pages before publishing.
-const GAME_VERSION := "1.3"
+const GAME_VERSION := "1.0.4"
 
 var unlocked_level := 1     # highest level the player may open (saved)
 var sound_on := true        # saved
@@ -92,6 +92,7 @@ var daily_day := -1             # session only: daily challenge being played (-1
 var open_daily_tab := false     # session only: Home opens on its Daily tab (the map's Daily button)
 var map_seen_level := 0         # session only: level the map pin last stood on
 var quit_notice := ""           # session only: shown on Home after a level was abandoned by closing the app
+var rate_state := 0             # rating ask: 0 = not asked yet, 1 = "later" once, 2 = never ask again
 
 ## Reward for day 1..7 of each streak week.
 const STREAK_REWARDS: Array[Dictionary] = [
@@ -124,6 +125,9 @@ var _shape_thread := Thread.new()
 
 
 func _ready() -> void:
+	# The Back key never shuts the engine down (that crashed on some phones); menus send the
+	# game to the background instead and a level asks before leaving (see _notification).
+	get_tree().quit_on_go_back = false
 	load_game()
 	_settle_abandoned_level()
 	current_level = unlocked_level
@@ -195,6 +199,7 @@ func save_game() -> void:
 	cfg.set_value("settings", "zoom_tip_seen", zoom_tip_seen)
 	cfg.set_value("settings", "tutorial_done", tutorial_done)
 	cfg.set_value("settings", "seen_features", seen_features)
+	cfg.set_value("settings", "rate_state", rate_state)
 	cfg.set_value("daily", "streak", streak)
 	cfg.set_value("daily", "streak_last_day", streak_last_day)
 	cfg.set_value("daily", "streak_best", streak_best)
@@ -260,6 +265,7 @@ func load_game() -> void:
 	zoom_tip_seen = bool(cfg.get_value("settings", "zoom_tip_seen", false))
 	tutorial_done = bool(cfg.get_value("settings", "tutorial_done", false))
 	seen_features = cfg.get_value("settings", "seen_features", {})
+	rate_state = int(cfg.get_value("settings", "rate_state", 0))
 	streak = int(cfg.get_value("daily", "streak", 0))
 	streak_last_day = int(cfg.get_value("daily", "streak_last_day", -1))
 	streak_best = int(cfg.get_value("daily", "streak_best", 0))
@@ -582,6 +588,7 @@ func reset_all_data() -> void:
 	zoom_tip_seen = false
 	tutorial_done = false
 	seen_features = {}
+	rate_state = 0
 	streak = 0
 	streak_last_day = -1
 	streak_best = 0
@@ -772,12 +779,38 @@ func _process(delta: float) -> void:
 
 ## Music pauses while the app is in the background or a full-screen ad is up.
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		_on_back_key()
+		return
 	if not _music:
 		return
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		_music.stream_paused = true
 	elif what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
 		_music.stream_paused = false
+
+
+## The phone's Back key outside a level: close an open Options page first, otherwise the
+## game goes to the background (never an engine shutdown - see AppLinks.send_to_background).
+func _on_back_key() -> void:
+	var scene := get_tree().current_scene
+	if scene and scene.scene_file_path.ends_with("GameScene.tscn"):
+		return  # a level handles Back itself (asks before leaving)
+	var options := _find_options(get_tree().root)
+	if options:
+		options._go_back()
+		return
+	AppLinks.send_to_background()
+
+
+func _find_options(node: Node) -> OptionsScreen:
+	for c in node.get_children():
+		if c is OptionsScreen and not c.is_queued_for_deletion():
+			return c
+		var found := _find_options(c)
+		if found:
+			return found
+	return null
 
 
 func _kill_music_tween() -> void:

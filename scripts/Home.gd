@@ -748,6 +748,11 @@ func _build_me(root: Control) -> void:
 				GameData.toggle_vibration()),
 		_me_row("opt_settings", Color("#3b82f6"), "More settings", "settings"),
 	]))
+	list.add_child(_section("ENJOYING THE GAME?"))
+	list.add_child(_me_card([
+		_me_row("opt_star", Color("#f59e0b"), "Rate Arrow Crush", "rate"),
+		_me_row("opt_share", Color("#22c55e"), "Share with Friends", "share"),
+	]))
 	list.add_child(_section("HELP & PRIVACY"))
 	list.add_child(_me_card([
 		_me_row("opt_help", Color("#22c55e"), "Help", "help"),
@@ -861,6 +866,10 @@ func _me_row(icon: String, color: Color, text: String, page: String) -> Button:
 		GameData.play_sfx("tap")
 		if page == "shop":
 			_open_shop()
+		elif page == "rate":
+			AppLinks.rate()
+		elif page == "share":
+			AppLinks.share()
 		elif page == "privacy_policy" or page == "terms":
 			LegalText.open_page(page)  # these live on the website
 		else:
